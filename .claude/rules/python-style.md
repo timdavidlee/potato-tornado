@@ -5,9 +5,9 @@ Conventions for all Python in this repo. These reflect the enforced config in
 
 ## Baseline
 
-- **Target:** Python 3.11+ (`requires-python = ">=3.11"`, ruff/pyright target `py311`). Use
+- **Target:** Python 3.14+ (`requires-python = ">=3.14"`, ruff/pyright target `py314`). Use
   modern syntax freely (`X | None`, `match`, `list[int]`, built-in generics — never
-  `typing.List`/`Optional`). Avoid 3.12+-only syntax that would break the floor.
+  `typing.List`/`Optional`). Avoid syntax newer than the 3.14 floor.
 - **Formatter is authoritative.** Run `uv run ruff format`; never hand-format. Double quotes,
   space indent, 100-col line length (the formatter wraps).
 - **Lint clean.** `uv run ruff check` must pass. Active rule sets: `E` (pycodestyle),
@@ -39,6 +39,22 @@ Conventions for all Python in this repo. These reflect the enforced config in
 - Don't introduce a class purely to group functions that share no state — that's a module's
   job. Use a class when state or lifecycle justifies it, not as a namespace.
 - **Everything stays fully type-annotated** regardless of which shape you choose.
+
+## Data shapes
+
+- **Prefer a typed structure over a bare `dict` for anything with a known shape.** Reach for a
+  `@dataclass` (the repo default — see the `frozen=True, slots=True` specs in
+  [collection.py](../../src/potato_tornado/core/collection.py)) or a `TypedDict` to name a
+  fixed set of fields, instead of threading `dict[str, Any]` around and indexing it by string.
+  A named type buys attribute access, pyright checking, and a place to hang a docstring.
+- **Use a Pydantic model when you need runtime validation or parsing at a boundary** —
+  untrusted input, config files, CLI/JSON payloads — where values should be coerced and bad
+  data should raise. For internal, already-trusted data a plain dataclass is lighter; don't
+  reach for Pydantic just to hold fields. Pydantic isn't a dependency yet — add it with
+  `uv add pydantic` when the first real use appears (see **Dependencies**).
+- **Reserve bare dicts for genuinely dynamic, string-keyed maps** — homogeneous lookups, or
+  shapes that truly vary at runtime (e.g. a collection's `name -> DataFrame` result). When you
+  do pass a loose `dict[str, Any]`, document the shape with a foo-bar example per **Docstrings**.
 
 ## Docstrings
 
