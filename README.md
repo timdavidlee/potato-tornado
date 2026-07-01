@@ -51,18 +51,31 @@ with DuckDBSink("hotel.duckdb") as sink:  # or PostgresSink(dsn)
 
 ## Adding a collection
 
-1. Create `src/potato_tornado/collections/<name>.py`.
-2. Write one `_build_*` function per table. Each takes a
+Each collection is a **package** `src/potato_tornado/collections/<name>/`:
+
+```
+<name>/
+  __init__.py     assembles the Collection and calls register("<name>", build)
+  constants.py    domain reference data / catalogs (optional)
+  tables/         one module per table: build_<table>(ctx) -> polars.DataFrame
+  scenarios/      markdown docs for the intended signals planted in the data
+```
+
+1. Write one `build_<table>` per table under `tables/`. Each takes a
    [`GenContext`](src/potato_tornado/core/collection.py) and returns a
    `polars.DataFrame`. Use `ctx.dist` for distributions, `ctx.entities` for
    people / companies / cities, `ctx.n(base)` for scaled row counts, and
    `ctx.table("other")` to reference an already-built table (declare it in
-   `depends_on`).
-3. Assemble a `Collection` of `TableSpec`s and `register("<name>", build)`.
-4. Add the module to `_BUILTIN_MODULES` in
+   `depends_on`). Re-export the builders from `tables/__init__.py`.
+2. Assemble a `Collection` of `TableSpec`s and `register("<name>", build)` in
+   `__init__.py`.
+3. Add the package to `_BUILTIN_MODULES` in
    [`registry.py`](src/potato_tornado/core/registry.py).
+4. Document the signals you planted in `scenarios/*.md` (the teaching "answer key").
 
-See [`labor.py`](src/potato_tornado/collections/labor.py) for a worked example.
+See [`labor/`](src/potato_tornado/collections/labor) for a worked example and
+[`collections/CLAUDE.md`](src/potato_tornado/collections/CLAUDE.md) for the full
+pattern.
 
 ## Entity pools
 
