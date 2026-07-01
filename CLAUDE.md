@@ -22,7 +22,9 @@ src/potato_tornado/
   generators/       cross-collection helpers (people, ids)
   pools/            entity pools: EntityProvider (generate from scratch vs. sample
                     a persisted EntityPool) + build_pool()/save/load (Parquet)
-  collections/      one module per collection, each calls register(...)
+  collections/      one package per collection (see collections/CLAUDE.md):
+                    <name>/{__init__ registers it, constants.py, tables/ one
+                    module per table, scenarios/ intended-signal docs}
   sinks/            Sink protocol + DuckDBSink (core) and PostgresSink (extra)
   runner.py         generate() / generate_to_sink()
   cli.py            Typer app: list / describe / generate / build-pool
@@ -53,10 +55,15 @@ tests/
 
 ## Adding a collection
 
-New module in `collections/`, `register("<name>", build)` at import time, then
-add the module path to `_BUILTIN_MODULES` in `core/registry.py`. Add a row to the
-README table. The parametrized tests in `tests/test_runner.py` will pick it
-up automatically for determinism / non-empty checks.
+New package `collections/<name>/` — the full pattern (`__init__` / `constants.py`
+/ `tables/` / `scenarios/`) is documented in
+[`collections/CLAUDE.md`](src/potato_tornado/collections/CLAUDE.md). In short:
+one `build_<table>` per table under `tables/`, assemble + `register("<name>",
+build)` in `__init__.py`, add the package path to `_BUILTIN_MODULES` in
+`core/registry.py`, write at least one `scenarios/*.md` for the signals you
+planted, and add a row to the README table. The parametrized tests in
+`tests/test_runner.py` pick it up automatically for determinism / non-empty
+checks.
 
 ## Checks (run before finishing)
 

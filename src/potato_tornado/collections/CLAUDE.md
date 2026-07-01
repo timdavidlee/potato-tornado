@@ -1,0 +1,115 @@
+# Collections
+
+Every collection under this directory is a **package** (`<name>/`), not a flat
+module. The package name **is** the collection name passed to `register(...)` and
+used on the CLI (`generate <name>`).
+
+## Layout
+
+```
+collections/
+  <name>/
+    __init__.py     assembles the Collection from its TableSpecs and calls
+                    register("<name>", build) at import time.
+    constants.py    domain reference data / catalogs (literal tables the
+                    generators draw from). Optional — omit if the collection has
+                    no shared literals.
+    tables/
+      __init__.py   re-exports every build_<table> so __init__ imports from one place.
+      <table>.py    one module per table: `def build_<table>(ctx: GenContext) -> pl.DataFrame`.
+    scenarios/
+      <signal>.md   one markdown doc per intended analytical signal in the data.
+```
+
+`labor/` is the worked reference — copy its shape.
+
+## Responsibilities of each part
+
+- **`__init__.py`** — the assembly point and the *only* place that knows the table
+  wiring. It imports the `build_<table>` functions from `tables/`, builds the
+  `Collection(name=..., description=..., tables=(TableSpec(...), ...))`, declares
+  each table's `depends_on`, and calls `register("<name>", build)`. Keep it thin:
+  no generation logic here. Importing the package must have the side effect of
+  registering the collection — that's how `registry._discover()` finds it, so the
+  package path (`potato_tornado.collections.<name>`) goes in `_BUILTIN_MODULES`.
+
+- **`tables/<table>.py`** — the generation logic for exactly one table. Export a
+  public `build_<table>(ctx: GenContext) -> pl.DataFrame`. A `ctx` param that a
+  trivial table doesn't use is fine (uniform signature). Table-local helpers and
+  constants stay private (`_leading_underscore`) in the module that uses them —
+  see `hotel/tables/stays.py` (`_rate_lookup`). Re-export the builder from
+  `tables/__init__.py`.
+
+- **`constants.py`** — the collection's fixed "seed" facts: catalog literals like
+  the room-type ladder or the department list. A literal used by **two or more**
+  tables (e.g. `hotel`'s `ROOM_TYPES`, read by both `room_types` and
+  `reservations`) belongs here so there's one source of truth. Names are public
+  (no underscore) since tables import them. A literal used by only one table can
+  stay in that table's module — don't hoist speculatively.
+
+- **`scenarios/<signal>.md`** — see below.
+
+## Scenarios: the intended signals
+
+A scenario documents a **signal deliberately planted in the generated data** — a
+fact a student or agent querying the dataset is *meant* to discover. It is the
+teaching "answer key": the no-show rate, the right-skewed overtime tail, the OTA
+channel dominance. If a generator tunes a distribution to make a point, that point
+gets a scenario doc.
+
+**Docs come first, code second.** Today scenarios are markdown only — the source
+of truth. The planned next step is typed `Scenario` objects (name, signal,
+tables, an optional `check(frames) -> bool` that verifies the signal holds on
+freshly generated data). Those objects will be built **against these docs** so the
+two can't drift — the doc is authored first and the object references it. So when
+you add or retune a signal, **write/update the markdown**; don't invent a parallel
+description elsewhere.
+
+Every collection must ship at least one scenario doc — `tests/collections/
+test_scenarios.py` enforces it.
+
+### Scenario doc template
+
+Filename is a kebab-case slug of the signal (`no-show-rate.md`,
+`ota-is-the-largest-channel.md`). Keep this structure so the future `Scenario`
+objects can be generated from it mechanically:
+
+```markdown
+# <one-line signal title>
+
+- **Signal:** one sentence stating what is true in the data.
+- **Tables:** `table.column`, ... (what to look at)
+- **Magnitude:** the rough number to expect (rate / ratio / skew / bound).
+
+<short prose: what to do to surface it, and why it's planted — the teaching point.>
+
+## How to find it
+
+<a SQL / query sketch that reveals the signal, with the expected value in a comment>
+```
+
+Keep magnitudes honest — they must match the generator. If you change a weight or
+a distribution parameter in a `tables/` module, update the scenario magnitude in
+the same change.
+
+## Adding a collection
+
+1. `mkdir collections/<name>/` with `__init__.py`, `tables/` (+ `__init__.py`),
+   `scenarios/`, and `constants.py` if it has shared literals.
+2. Write one `build_<table>` per table in `tables/`; re-export them from
+   `tables/__init__.py`.
+3. In `__init__.py`, assemble the `Collection` and `register("<name>", build)`.
+4. Add `"potato_tornado.collections.<name>"` to `_BUILTIN_MODULES` in
+   [`core/registry.py`](../core/registry.py).
+5. Write at least one `scenarios/*.md` for the signals you planted.
+6. Add a row to the README collections table.
+7. Mirror tests under `tests/collections/<name>/` (behavioural tests go through
+   `generate("<name>", ...)`); the parametrized `tests/test_runner.py` picks the
+   collection up automatically for determinism / non-empty checks.
+
+## Determinism still applies
+
+Splitting a collection across files changes nothing about determinism: random
+streams are name-keyed off the **table name** (`Rng.child(name)`), not the module
+path. Draw only from `ctx.dist` / `ctx.rng` / `ctx.entities`; never wall-clock,
+`random`, or the numpy global RNG. Keep the determinism test green.
