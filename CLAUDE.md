@@ -41,6 +41,12 @@ tests/
 - **Random streams are name-keyed** (`Rng.child(name)`) so adding a table doesn't
   shift the draws of existing tables.
 - **Row counts scale** via `ctx.n(base)` — author against `scale=1.0`.
+- **Aim for ~3 years of data where possible.** The default window
+  (`GenerationConfig.start_date`/`end_date`) spans three calendar years so
+  collections can show year-over-year trends and repeated seasonal cycles.
+  Generate event dates across the full `[start_date, end_date)` window (use
+  `ctx.config.span_days`) rather than clustering them, and don't hard-code a
+  shorter span.
 - **Table builders return `polars.DataFrame`.** Date/datetime/string columns may
   start as numpy object arrays; `Collection.generate` normalizes `Object` columns
   to concrete Polars dtypes, so don't fight the dtype at the call site.

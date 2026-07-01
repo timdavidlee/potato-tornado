@@ -7,8 +7,10 @@
 
 The no-show rate is the clinic's core operational signal: a missed appointment is
 capacity that was booked but wasted. An analyst should be able to read the
-lifecycle mix off `status` directly, and (once slots/visits land) tie the no-show
-rate to booking lead time. It's the natural setup for a utilisation question.
+lifecycle mix off `status` directly. The rate is not uniform — it climbs with
+booking lead time (see [`no-show-rises-with-lead-time.md`](no-show-rises-with-lead-time.md)) —
+and pairs with slot utilisation (see [`provider-utilisation.md`](provider-utilisation.md))
+for the full booked-vs-wasted-capacity picture.
 
 ## How to find it
 

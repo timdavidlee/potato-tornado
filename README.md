@@ -33,8 +33,8 @@ always produce byte-identical tables.
 |------------|--------|---------|
 | `labor` | `departments`, `employees`, `shifts`, `assignments`, `time_entries` | Labor assignment & utilization: plan vs. actual attendance, overtime, no-shows |
 | `hotel` | `properties`, `room_types`, `reservations`, `stays`, `service_orders`, `room_upgrades`, `stay_changes`, `demand_forecast` | Reservations → actual stays, ancillary service spend & fees, room-class upgrades, stay-length amendments, forecast vs. realised occupancy |
-| `clinic` | `providers`, `patients`, `appointments` | Outpatient appointment scheduling: patient/provider bookings through a completed / no-show / cancelled lifecycle (placeholder — slots/visits/invoices to come) |
-| `streaming` | `plans`, `titles`, `subscribers`, `subscriptions`, `rentals` | Streaming service: recurring subscriptions on a plan ladder plus one-off premium (PVOD) rentals (placeholder title names) |
+| `clinic` | `providers`, `patients`, `slots`, `appointments`, `visits`, `invoices` | Outpatient slot → booking → visit → billing workflow: provider slot utilisation, a no-show rate that rises with booking lead time, per-visit-type duration overrun, and self-pay-concentrated accounts receivable |
+| `streaming` | `plans`, `regions`, `actors`, `titles`, `title_availability`, `subscribers`, `subscriptions`, `rentals` | Streaming service: recurring subscriptions on a plan ladder plus one-off premium (PVOD) rentals; regional catalogue licensing (a subscriber only rents titles licensed in their region); parody titles pair a famous figure (`lead_actor`) with an off-genre show (`genre`) |
 
 ## Using it as a library
 

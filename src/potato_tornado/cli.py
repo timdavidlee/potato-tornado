@@ -49,7 +49,7 @@ def generate_cmd(
     seed: int = typer.Option(42, help="Master seed for reproducibility."),
     scale: float = typer.Option(1.0, help="Row-count multiplier (1.0 = reference size)."),
     start: datetime = typer.Option(
-        datetime(2024, 1, 1), formats=["%Y-%m-%d"], help="Event window start (YYYY-MM-DD)."
+        datetime(2022, 1, 1), formats=["%Y-%m-%d"], help="Event window start (YYYY-MM-DD)."
     ),
     end: datetime = typer.Option(
         datetime(2025, 1, 1), formats=["%Y-%m-%d"], help="Event window end (YYYY-MM-DD)."
