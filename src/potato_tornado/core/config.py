@@ -17,7 +17,10 @@ class GenerationConfig:
             reference size each collection is authored against; ``10.0`` makes an
             (roughly) 10x larger dataset.
         start_date: Inclusive lower bound for generated event dates.
-        end_date: Exclusive upper bound for generated event dates.
+        end_date: Exclusive upper bound for generated event dates. Aim for a
+            window of about 3 years where possible — long enough to show
+            year-over-year trends and multiple seasonal cycles. The default
+            spans three full calendar years.
         pool_dir: Directory of a persisted entity pool (see
             :mod:`potato_tornado.pools`) to sample names / companies / cities
             from. ``None`` (the default) generates those entities from scratch.
@@ -25,7 +28,7 @@ class GenerationConfig:
 
     seed: int = 42
     scale: float = 1.0
-    start_date: date = date(2024, 1, 1)
+    start_date: date = date(2022, 1, 1)
     end_date: date = date(2025, 1, 1)
     pool_dir: Path | None = None
 
