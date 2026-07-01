@@ -49,10 +49,12 @@ _CHANNEL_WEIGHTS = [0.34, 0.44, 0.16, 0.06]
 def _build_properties(ctx: GenContext) -> pl.DataFrame:
     n = min(ctx.n(6), len(_CITIES))
     cities = _CITIES[:n]
+    # Name each property "<surname> <city>", the surname taken from an entity.
+    surnames = [name.split()[-1] for name in ctx.entities.people(n)["full_name"].to_list()]
     return pl.DataFrame(
         {
             "property_id": [f"HOT-{i:03d}" for i in range(1, n + 1)],
-            "name": [f"{ctx.faker.last_name()} {city}" for city in cities],
+            "name": [f"{surname} {city}" for surname, city in zip(surnames, cities, strict=True)],
             "city": cities,
             "total_rooms": ctx.dist.integers(n, 60, 220),
         }
@@ -104,7 +106,7 @@ def _build_reservations(ctx: GenContext) -> pl.DataFrame:
         {
             "reservation_id": [f"RES-{i:07d}" for i in range(1, n + 1)],
             "property_id": ctx.dist.choice(n, props),
-            "guest_name": [ctx.faker.name() for _ in range(n)],
+            "guest_name": ctx.entities.people(n)["full_name"],
             "channel": ctx.dist.choice(n, _CHANNELS, _CHANNEL_WEIGHTS),
             "room_type": ctx.dist.choice(n, type_names, type_weights),
             "booked_date": booked,

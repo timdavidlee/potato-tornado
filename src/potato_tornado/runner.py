@@ -7,15 +7,21 @@ from faker import Faker
 
 from potato_tornado.core.config import GenerationConfig
 from potato_tornado.core.registry import get_collection
+from potato_tornado.pools.store import EntityPool
 from potato_tornado.sinks.base import Sink
 
 
 def generate(name: str, config: GenerationConfig | None = None) -> dict[str, pl.DataFrame]:
-    """Generate every table of collection ``name`` into in-memory DataFrames."""
+    """Generate every table of collection ``name`` into in-memory DataFrames.
+
+    If ``config.pool_dir`` is set, entity fields are sampled from that persisted
+    pool; otherwise they are generated from scratch.
+    """
     config = config or GenerationConfig()
     collection = get_collection(name)
     faker = Faker()
-    return collection.generate(config, faker)
+    pool = EntityPool.load(config.pool_dir) if config.pool_dir is not None else None
+    return collection.generate(config, faker, pool)
 
 
 def generate_to_sink(

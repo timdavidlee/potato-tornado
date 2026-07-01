@@ -19,9 +19,12 @@ import polars as pl
 from potato_tornado.core.config import GenerationConfig
 from potato_tornado.core.distributions import Distributions
 from potato_tornado.core.rng import Rng
+from potato_tornado.pools.provider import EntityProvider, GeneratedEntities, PooledEntities
 
 if TYPE_CHECKING:
     from faker import Faker
+
+    from potato_tornado.pools.store import EntityPool
 
 TableBuilder = Callable[["GenContext"], pl.DataFrame]
 
@@ -31,7 +34,9 @@ class GenContext:
 
     A fresh context is handed to each ``TableSpec.build`` call. ``rng`` and
     ``dist`` are derived from the table name so builds are independent and stable.
-    Already-built tables in the same collection are available via :meth:`table`.
+    ``entities`` yields people / companies / cities either freshly generated or
+    sampled from a persisted pool, depending on the run's config. Already-built
+    tables in the same collection are available via :meth:`table`.
     """
 
     def __init__(
@@ -40,12 +45,14 @@ class GenContext:
         config: GenerationConfig,
         rng: Rng,
         faker: Faker,
+        entities: EntityProvider,
         built: dict[str, pl.DataFrame],
     ) -> None:
         self.config = config
         self.rng = rng
         self.dist = Distributions(rng)
         self.faker = faker
+        self.entities = entities
         self._built = built
 
     def table(self, name: str) -> pl.DataFrame:
@@ -109,18 +116,34 @@ class Collection:
             visit(spec)
         return ordered
 
-    def generate(self, config: GenerationConfig, faker: Faker) -> dict[str, pl.DataFrame]:
-        """Build every table in dependency order and return them by name."""
+    def generate(
+        self,
+        config: GenerationConfig,
+        faker: Faker,
+        pool: EntityPool | None = None,
+    ) -> dict[str, pl.DataFrame]:
+        """Build every table in dependency order and return them by name.
+
+        When ``pool`` is given, entity fields (names / companies / cities) are
+        sampled from it; otherwise they are generated from scratch via ``faker``.
+        """
         master = Rng(config.seed).child(self.name)
         # Seed Faker deterministically for this collection. Build order is stable,
         # so Faker's own sequential state stays reproducible across runs.
         faker.seed_instance(master.seed)
         built: dict[str, pl.DataFrame] = {}
         for spec in self.build_order():
+            table_rng = master.child(spec.name)
+            entities: EntityProvider = (
+                PooledEntities(pool, table_rng.child("entities"))
+                if pool is not None
+                else GeneratedEntities(faker)
+            )
             ctx = GenContext(
                 config=config,
-                rng=master.child(spec.name),
+                rng=table_rng,
                 faker=faker,
+                entities=entities,
                 built=built,
             )
             built[spec.name] = _normalize(spec.build(ctx))

@@ -69,12 +69,13 @@ def _build_employees(ctx: GenContext) -> pl.DataFrame:
     hire = ctx.dist.dates_between(
         n, ctx.config.start_date - timedelta(days=5 * 365), ctx.config.end_date
     )
+    people = ctx.entities.people(n)
 
     return pl.DataFrame(
         {
             "employee_id": [f"EMP-{i:05d}" for i in range(1, n + 1)],
-            "full_name": [ctx.faker.name() for _ in range(n)],
-            "email": [ctx.faker.unique.email() for _ in range(n)],
+            "full_name": people["full_name"],
+            "email": people["email"],
             "department_id": dept_of,
             "role": roles,
             "employment_type": ctx.dist.choice(n, _EMPLOYMENT, _EMPLOYMENT_WEIGHTS),

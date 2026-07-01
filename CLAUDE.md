@@ -20,10 +20,12 @@ src/potato_tornado/
                     Object->concrete-dtype normalization)
     registry.py     register() / get_collection() / iter_collections()
   generators/       cross-collection helpers (people, ids)
+  pools/            entity pools: EntityProvider (generate from scratch vs. sample
+                    a persisted EntityPool) + build_pool()/save/load (Parquet)
   collections/      one module per collection, each calls register(...)
   sinks/            Sink protocol + DuckDBSink (core) and PostgresSink (extra)
   runner.py         generate() / generate_to_sink()
-  cli.py            Typer app: list / describe / generate
+  cli.py            Typer app: list / describe / generate / build-pool
 tests/
 ```
 
@@ -43,6 +45,11 @@ tests/
 - **Dependencies are explicit:** to read another table via `ctx.table("x")`,
   declare `depends_on=("x",)`. Build order is topological; cycles raise.
 - Keep referential integrity real (FKs point at rows that exist).
+- **Entity fields go through `ctx.entities`** (`.people(n)` → `full_name`/`email`
+  frame, `.companies(n)`, `.cities(n)`) — not `ctx.faker` directly. The same call
+  site works whether the run generates from scratch or samples a persisted pool
+  (`GenerationConfig.pool_dir`); pooled sampling is name-keyed off the table's
+  `ctx.rng`, so it stays deterministic.
 
 ## Adding a collection
 

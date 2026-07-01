@@ -54,14 +54,43 @@ with DuckDBSink("hotel.duckdb") as sink:  # or PostgresSink(dsn)
 1. Create `src/potato_tornado/collections/<name>.py`.
 2. Write one `_build_*` function per table. Each takes a
    [`GenContext`](src/potato_tornado/core/collection.py) and returns a
-   `polars.DataFrame`. Use `ctx.dist` for distributions, `ctx.faker` for names,
-   `ctx.n(base)` for scaled row counts, and `ctx.table("other")` to reference an
-   already-built table (declare it in `depends_on`).
+   `polars.DataFrame`. Use `ctx.dist` for distributions, `ctx.entities` for
+   people / companies / cities, `ctx.n(base)` for scaled row counts, and
+   `ctx.table("other")` to reference an already-built table (declare it in
+   `depends_on`).
 3. Assemble a `Collection` of `TableSpec`s and `register("<name>", build)`.
 4. Add the module to `_BUILTIN_MODULES` in
    [`registry.py`](src/potato_tornado/core/registry.py).
 
 See [`labor.py`](src/potato_tornado/collections/labor.py) for a worked example.
+
+## Entity pools
+
+Names, emails, companies and cities can either be **generated from scratch** on
+every run (the default) or **sampled from a pool** you build once offline and
+persist. Same call site in a collection (`ctx.entities.people(n)`) — the source is
+chosen by config.
+
+```bash
+uv run potato-tornado build-pool ./pool --size 5000 --seed 7   # generate + persist (Parquet)
+uv run potato-tornado generate labor --out labor.duckdb --pool ./pool   # sample from it
+```
+
+From Python, point a config at the pool directory:
+
+```python
+from pathlib import Path
+
+from potato_tornado.core.config import GenerationConfig
+from potato_tornado.pools import build_pool
+from potato_tornado.runner import generate
+
+build_pool(GenerationConfig(seed=7), size=5000).save("pool")
+tables = generate("labor", GenerationConfig(pool_dir=Path("pool")))  # names drawn from the pool
+```
+
+Sampling is deterministic and keeps emails unique per table; omit `pool_dir` to
+generate entities from scratch instead.
 
 ## Development
 
