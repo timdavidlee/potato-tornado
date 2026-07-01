@@ -12,6 +12,23 @@ from __future__ import annotations
 
 CITIES = ["Lisbon", "Porto", "Madrid", "Seville", "Lyon", "Turin"]
 
+# Property naming: a single group brand plus a per-property descriptor and the city,
+# e.g. "Meridian Grand Lisbon". The group is one chain, so the brand is shared and
+# each property gets a distinct descriptor.
+HOTEL_BRAND = "Meridian"
+HOTEL_DESCRIPTORS = [
+    "Grand",
+    "Royal",
+    "Park",
+    "Plaza",
+    "Palace",
+    "Regency",
+    "Continental",
+    "Metropole",
+    "Bristol",
+    "Imperial",
+]
+
 # (room_type, base_nightly_rate, booking_weight)
 ROOM_TYPES = [
     ("Standard", 95.0, 0.55),
@@ -20,12 +37,17 @@ ROOM_TYPES = [
     ("Penthouse", 480.0, 0.05),
 ]
 
-# (service, unit_price)
+# (service, unit_price) — the ancillary "service-book" menu billed per stay via
+# service_orders. A mix of discretionary spend (Dining, Spa, Room Service) and the
+# recurring stay fees a guest gets charged (Internet, Television, Parking).
 SERVICES = [
     ("Breakfast", 18.0),
     ("Spa", 75.0),
     ("Dining", 55.0),
+    ("Room Service", 32.0),
     ("Parking", 22.0),
+    ("Internet", 12.0),
+    ("Television", 9.0),
     ("Minibar", 14.0),
     ("Laundry", 20.0),
 ]

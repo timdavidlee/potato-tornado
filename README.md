@@ -32,7 +32,9 @@ always produce byte-identical tables.
 | Collection | Tables | Teaches |
 |------------|--------|---------|
 | `labor` | `departments`, `employees`, `shifts`, `assignments`, `time_entries` | Labor assignment & utilization: plan vs. actual attendance, overtime, no-shows |
-| `hotel` | `properties`, `room_types`, `reservations`, `stays`, `service_orders`, `demand_forecast` | Reservations → actual stays, ancillary service spend, forecast vs. realised occupancy |
+| `hotel` | `properties`, `room_types`, `reservations`, `stays`, `service_orders`, `room_upgrades`, `stay_changes`, `demand_forecast` | Reservations → actual stays, ancillary service spend & fees, room-class upgrades, stay-length amendments, forecast vs. realised occupancy |
+| `clinic` | `providers`, `patients`, `appointments` | Outpatient appointment scheduling: patient/provider bookings through a completed / no-show / cancelled lifecycle (placeholder — slots/visits/invoices to come) |
+| `streaming` | `plans`, `titles`, `subscribers`, `subscriptions`, `rentals` | Streaming service: recurring subscriptions on a plan ladder plus one-off premium (PVOD) rentals (placeholder title names) |
 
 ## Using it as a library
 

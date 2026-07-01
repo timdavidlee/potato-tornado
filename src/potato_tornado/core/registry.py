@@ -20,6 +20,8 @@ _REGISTRY: dict[str, CollectionFactory] = {}
 _BUILTIN_MODULES = (
     "potato_tornado.collections.labor",
     "potato_tornado.collections.hotel",
+    "potato_tornado.collections.clinic",
+    "potato_tornado.collections.streaming",
 )
 _discovered = False
 

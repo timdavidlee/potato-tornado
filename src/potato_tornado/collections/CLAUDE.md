@@ -19,6 +19,7 @@ collections/
       <table>.py    one module per table: `def build_<table>(ctx: GenContext) -> pl.DataFrame`.
     scenarios/
       <signal>.md   one markdown doc per intended analytical signal in the data.
+    realism-guidance.md   the review rubric: plausibility rules the data must respect.
 ```
 
 `labor/` is the worked reference — copy its shape.
@@ -92,6 +93,29 @@ Keep magnitudes honest — they must match the generator. If you change a weight
 a distribution parameter in a `tables/` module, update the scenario magnitude in
 the same change.
 
+## Realism guidance: the review rubric
+
+Alongside `scenarios/`, every collection ships one `realism-guidance.md` at the
+package root (next to `__init__.py`). Where a scenario says what a student should
+*find*, realism guidance says what the data must never get *wrong* — it's the
+rubric a reviewer (human or Claude) checks freshly generated data against. It has
+three jobs:
+
+- **Invariants** — hard rules that must always hold (referential integrity,
+  temporal ordering, non-negativity, arithmetic identities like
+  `revenue = rate × nights`). A violation is a bug.
+- **Distributions & mixes** — the intended shapes and weights, with the rough
+  magnitudes, so a reviewer can tell "plausible" from "drifted".
+- **Deliberate simplifications** — where the data knowingly departs from reality
+  for teaching clarity (e.g. hotel rates have no weekday/weekend variation). This
+  is what stops a reviewer from "fixing" an intentional choice — and it's the
+  natural shortlist of candidates to promote into new scenarios.
+
+Like scenario magnitudes, these numbers must track the generators: if you retune a
+`tables/` distribution, update the matching line in `realism-guidance.md` in the
+same change. `tests/collections/test_scenarios.py` enforces that the file exists.
+The `labor` / `hotel` docs are the worked references.
+
 ## Adding a collection
 
 1. `mkdir collections/<name>/` with `__init__.py`, `tables/` (+ `__init__.py`),
@@ -102,8 +126,10 @@ the same change.
 4. Add `"potato_tornado.collections.<name>"` to `_BUILTIN_MODULES` in
    [`core/registry.py`](../core/registry.py).
 5. Write at least one `scenarios/*.md` for the signals you planted.
-6. Add a row to the README collections table.
-7. Mirror tests under `tests/collections/<name>/` (behavioural tests go through
+6. Write `realism-guidance.md` at the package root — the review rubric (invariants,
+   mixes, deliberate simplifications) for the collection.
+7. Add a row to the README collections table.
+8. Mirror tests under `tests/collections/<name>/` (behavioural tests go through
    `generate("<name>", ...)`); the parametrized `tests/test_runner.py` picks the
    collection up automatically for determinism / non-empty checks.
 

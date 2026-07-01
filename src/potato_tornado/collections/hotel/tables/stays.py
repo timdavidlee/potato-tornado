@@ -8,6 +8,14 @@ import polars as pl
 
 from potato_tornado.core.collection import GenContext
 
+# Realised stay length vs. the booking: most guests stay exactly as booked; a
+# minority check out early or extend by a few nights. ``stay_changes`` surfaces the
+# non-zero deltas as early_checkout / extension events.
+_CHANGE_KINDS = ["none", "early_checkout", "extension"]
+_CHANGE_WEIGHTS = [0.78, 0.09, 0.13]
+_MAX_EARLY_NIGHTS = 2  # leave up to 2 nights early
+_MAX_EXTRA_NIGHTS = 3  # extend up to 3 nights
+
 
 def build_stays(ctx: GenContext) -> pl.DataFrame:
     res = ctx.table("reservations")
@@ -19,9 +27,14 @@ def build_stays(ctx: GenContext) -> pl.DataFrame:
     room_types = honoured["room_type"].to_list()
     nights = honoured["nights"].to_list()
 
-    # Actual attendance drifts slightly from the booking (early/late checkout).
-    night_delta = ctx.dist.integers(n, -1, 1)
-    actual_nights = [max(1, nt + int(d)) for nt, d in zip(nights, night_delta, strict=True)]
+    change = ctx.dist.choice(n, _CHANGE_KINDS, _CHANGE_WEIGHTS)
+    early_cut = ctx.dist.integers(n, 1, _MAX_EARLY_NIGHTS)
+    extra = ctx.dist.integers(n, 1, _MAX_EXTRA_NIGHTS)
+    night_delta = [
+        -int(c) if k == "early_checkout" else int(x) if k == "extension" else 0
+        for k, c, x in zip(change, early_cut, extra, strict=True)
+    ]
+    actual_nights = [max(1, nt + d) for nt, d in zip(nights, night_delta, strict=True)]
     rates = [room_rates.get((p, t), 100.0) for p, t in zip(prop_ids, room_types, strict=True)]
     room_revenue = [round(r * nt, 2) for r, nt in zip(rates, actual_nights, strict=True)]
 

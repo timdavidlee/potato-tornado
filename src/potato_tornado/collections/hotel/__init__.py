@@ -11,7 +11,10 @@ Tables
 - ``room_types``      : room categories and nightly rates per property.
 - ``reservations``    : bookings, with status (honoured / cancelled / no_show).
 - ``stays``           : realised check-in / check-out for honoured reservations.
-- ``service_orders``  : ancillary purchases during a stay (spa, dining, ...).
+- ``service_orders``  : ancillary purchases and stay fees (dining, room service,
+                        internet, parking, ...).
+- ``room_upgrades``   : mid-stay room-class upgrades sold as a discounted upsell.
+- ``stay_changes``    : stay-length amendments (early checkout / night extension).
 - ``demand_forecast`` : forecast vs. actual occupancy per property per day.
 
 Table builders live in ``tables/``, the domain catalogs in ``constants.py``, and
@@ -25,7 +28,9 @@ from potato_tornado.collections.hotel.tables import (
     build_properties,
     build_reservations,
     build_room_types,
+    build_room_upgrades,
     build_service_orders,
+    build_stay_changes,
     build_stays,
 )
 from potato_tornado.core.collection import Collection, TableSpec
@@ -61,7 +66,19 @@ def build() -> Collection:
                 "service_orders",
                 build_service_orders,
                 depends_on=("stays",),
-                description="Ancillary service-book purchases.",
+                description="Ancillary service-book purchases and stay fees.",
+            ),
+            TableSpec(
+                "room_upgrades",
+                build_room_upgrades,
+                depends_on=("stays", "room_types"),
+                description="Mid-stay room-class upgrades sold as an upsell.",
+            ),
+            TableSpec(
+                "stay_changes",
+                build_stay_changes,
+                depends_on=("stays", "reservations"),
+                description="Stay-length amendments: early checkouts and extensions.",
             ),
             TableSpec(
                 "demand_forecast",

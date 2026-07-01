@@ -11,7 +11,9 @@ from potato_tornado.collections.hotel.tables.demand_forecast import build_demand
 from potato_tornado.collections.hotel.tables.properties import build_properties
 from potato_tornado.collections.hotel.tables.reservations import build_reservations
 from potato_tornado.collections.hotel.tables.room_types import build_room_types
+from potato_tornado.collections.hotel.tables.room_upgrades import build_room_upgrades
 from potato_tornado.collections.hotel.tables.service_orders import build_service_orders
+from potato_tornado.collections.hotel.tables.stay_changes import build_stay_changes
 from potato_tornado.collections.hotel.tables.stays import build_stays
 
 __all__ = [
@@ -19,6 +21,8 @@ __all__ = [
     "build_properties",
     "build_reservations",
     "build_room_types",
+    "build_room_upgrades",
     "build_service_orders",
+    "build_stay_changes",
     "build_stays",
 ]
