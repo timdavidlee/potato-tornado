@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,12 +18,16 @@ class GenerationConfig:
             (roughly) 10x larger dataset.
         start_date: Inclusive lower bound for generated event dates.
         end_date: Exclusive upper bound for generated event dates.
+        pool_dir: Directory of a persisted entity pool (see
+            :mod:`potato_tornado.pools`) to sample names / companies / cities
+            from. ``None`` (the default) generates those entities from scratch.
     """
 
     seed: int = 42
     scale: float = 1.0
     start_date: date = date(2024, 1, 1)
     end_date: date = date(2025, 1, 1)
+    pool_dir: Path | None = None
 
     def __post_init__(self) -> None:
         if self.scale <= 0:

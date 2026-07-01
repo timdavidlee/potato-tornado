@@ -7,6 +7,7 @@ import pytest
 
 from potato_tornado.core.config import GenerationConfig
 from potato_tornado.core.registry import iter_collections
+from potato_tornado.pools.store import build_pool
 from potato_tornado.runner import generate, generate_to_sink
 from potato_tornado.sinks.duckdb_sink import DuckDBSink
 
@@ -25,6 +26,15 @@ def test_generation_is_deterministic(name: str) -> None:
 def test_every_table_is_non_empty(name: str) -> None:
     tables = generate(name, GenerationConfig(scale=0.3))
     assert all(df.height > 0 for df in tables.values())
+
+
+def test_pool_mode_draws_employee_names_from_the_pool(tmp_path) -> None:
+    pool_dir = tmp_path / "pool"
+    build_pool(GenerationConfig(seed=2), size=100).save(pool_dir)
+    cfg = GenerationConfig(seed=5, scale=0.2, pool_dir=pool_dir)
+    employees = generate("labor", cfg)["employees"]
+    pool_names = set(build_pool(GenerationConfig(seed=2), size=100).people["full_name"].to_list())
+    assert set(employees["full_name"].to_list()) <= pool_names
 
 
 def test_generate_to_sink_persists_every_table(tmp_path) -> None:
