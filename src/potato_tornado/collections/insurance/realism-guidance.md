@@ -67,7 +67,9 @@ update the matching line below in the same change.
 - **Risk-tier mix.** preferred 0.45 / standard 0.40 / high_risk 0.15.
 - **Product mix.** auto 0.50 / home 0.30 / renters 0.20.
 - **Holder demographics.** `age_band` ≈ 18-25 0.12 / 26-40 0.30 / 41-60 0.33 / 60+ 0.25;
-  `tenure_years` uniform integer over [0, 15]; `state` population-weighted over the 50 states +
+  `tenure_years` **right-skewed** over [0, 15] (geometric decay, ratio 0.85 → mean ≈ 4.2,
+  median 3; ~0.53 of holders ≤ 3 yr, ~0.065 ≥ 12 yr — a growing book, few long-tenured, no
+  boundary pile); `state` population-weighted over the 50 states +
   DC (CA / TX / FL / NY the modes). All three are independent of `risk_tier` — slicing
   frequency/severity by them yields flat cuts (see Deliberate simplifications).
 - **Policy attributes.** `channel` ≈ broker 0.50 / direct 0.30 / aggregator 0.20;
@@ -118,7 +120,10 @@ update the matching line below in the same change.
   standard ≈ 0.60 → high_risk ≈ 0.85** (tier means over several seeds; the per-tier ratios
   carry ±0.15 seed noise and the standard/high_risk gap can narrow or invert on a given seed —
   see `scenarios/loss-ratio-rises-with-risk-tier.md`).
-- **peril mix.** Roughly uniform over the six perils — no product or geography coupling.
+- **peril mix.** Skewed (not uniform): collision ≈ 0.28 / water_damage ≈ 0.22 / weather ≈ 0.20
+  / theft ≈ 0.14 / liability ≈ 0.10 / fire ≈ 0.06 — the common personal-lines perils dominate,
+  fire is rare. This is a **marginal** frequency only; peril stays independent of product and
+  geography (see Deliberate simplifications). Measured shares carry small-n seed noise.
 
 ## Deliberate simplifications (intended — do not "fix")
 

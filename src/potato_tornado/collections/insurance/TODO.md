@@ -172,17 +172,24 @@ the *open* items.
 
 - [ ] **Severity is independent of product, tier, and peril.** A real book couples severity to
       what's insured (a home total-loss dwarfs a renters claim). A severity-by-product cross-tab
-      looks suspiciously flat — a candidate coupling (item 2 `catastrophe_flag` above is the
-      natural lever).
-- [ ] **`coverage_limit` is a 3-value-per-product lattice** (base × {0.5, 1.0, 2.0}) — only 9
-      distinct limits across the book. Check whether that discreteness reads as synthetic vs. a
-      continuous underwritten limit.
-- [ ] **`peril` mix is ~uniform over six perils.** Real peril frequencies are skewed
-      (collision/weather common, fire rare). A flat peril histogram is a likely too-synthetic
-      flag — a candidate to weight.
+      looks suspiciously flat. **Evaluated 2026-07-02 — left as a deliberate simplification**
+      (documented in the rubric); the coupling is scenario work, not a realism fix — item 2
+      `catastrophe_flag` is the natural lever → `/scenario:draft-or-propose`.
+- [ ] **`coverage_limit` is a 3-value-per-product lattice** (base × {0.5, 1.0, 2.0}) — only 7
+      distinct limits across the book. **Evaluated 2026-07-02 — left as a deliberate
+      simplification** ("keeps the payout arithmetic legible", per the rubric); not fixed.
+- [x] **`peril` mix is ~uniform over six perils.** **Fixed 2026-07-02** (see `realism-log.md`):
+      weighted to a skewed personal-lines marginal (collision 0.28 … fire 0.06), off a dedicated
+      `peril` child stream; peril stays independent of product/geography. Pinned
+      `test_peril_mix_is_skewed_not_uniform`.
 - [ ] **Broker/region aggregates are uniform by construction.** `broker_id`/`region` carry no
-      signal, so any broker-level roll-up looks flat (item 5 above would turn this into a
-      signal).
+      signal, so any broker-level roll-up looks flat. **Evaluated 2026-07-02 — left as a
+      deliberate simplification** ("carries no signal"); turning it into a signal is item 5's
+      producer-performance scenario, not a realism fix.
+- [ ] **`brokers.tenure_years` is uniform over [1, 30].** Low-priority residual from the
+      2026-07-02 tenure sweep (which right-skewed the *policyholder* tenure). Only a 40-row dim,
+      so the flat shape is a weak tell — left as-is; right-skew it if the broker dim ever grows
+      or gains analytic weight.
 
 ## When the list is done
 

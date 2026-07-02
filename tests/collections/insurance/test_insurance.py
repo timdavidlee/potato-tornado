@@ -163,6 +163,14 @@ def test_reported_amount_and_premium_are_positive(insurance: dict[str, pl.DataFr
     assert reported_ok and premium_ok
 
 
+def test_peril_mix_is_skewed_not_uniform(insurance_full: dict[str, pl.DataFrame]) -> None:
+    # Perils are weighted, not uniform (uniform share would be 1/6 ≈ 0.167): collision
+    # is the common peril (~0.28) and fire the rare one (~0.06).
+    mix = insurance_full["claims"]["peril"].value_counts(normalize=True)
+    share = dict(zip(mix["peril"].to_list(), mix["proportion"].to_list(), strict=True))
+    assert share["fire"] < 0.10 < 0.25 < share["collision"]
+
+
 def test_claims_reference_adjusters(insurance: dict[str, pl.DataFrame]) -> None:
     adjuster_ids = set(insurance["adjusters"]["adjuster_id"].to_list())
     assert set(insurance["claims"]["adjuster_id"].to_list()) <= adjuster_ids
@@ -242,6 +250,15 @@ def test_policyholder_tenure_years_in_range(insurance: dict[str, pl.DataFrame]) 
 
 def test_broker_tenure_years_is_positive(insurance: dict[str, pl.DataFrame]) -> None:
     assert insurance["brokers"].filter(pl.col("tenure_years") < 1).height == 0
+
+
+def test_policyholder_tenure_is_right_skewed(insurance: dict[str, pl.DataFrame]) -> None:
+    # Tenure is geometrically right-skewed, not uniform (uniform[0,15] would split evenly):
+    # recent customers (≤3yr) far outnumber long-tenured ones (≥12yr).
+    ph = insurance["policyholders"]
+    recent = ph.filter(pl.col("tenure_years") <= 3).height
+    long_tenured = ph.filter(pl.col("tenure_years") >= 12).height
+    assert recent > 3 * long_tenured
 
 
 def test_broker_commission_rate_in_band(insurance: dict[str, pl.DataFrame]) -> None:

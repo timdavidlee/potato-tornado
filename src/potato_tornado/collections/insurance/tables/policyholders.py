@@ -21,6 +21,16 @@ from potato_tornado.core.collection import GenContext
 _AGE_BANDS = ["18-25", "26-40", "41-60", "60+"]
 _AGE_BAND_WEIGHTS = [0.12, 0.30, 0.33, 0.25]
 
+# Tenure (years as a customer) is right-skewed, not uniform: a growing book has many
+# recent customers and few long-tenured ones. Geometric-style decaying weights over
+# [0, 15] (ratio 0.85) concentrate mass at low tenure with a smooth taper — no pile-up
+# at the boundary (value 15 is the smallest weight). Single-table literals.
+_TENURE_MAX = 15
+_TENURE_DECAY = 0.85
+_TENURE_VALUES = np.arange(_TENURE_MAX + 1)
+_TENURE_P = _TENURE_DECAY**_TENURE_VALUES
+_TENURE_P = _TENURE_P / _TENURE_P.sum()
+
 # US states (+ DC) with approximate resident population in millions, so holder
 # geography is population-weighted rather than uniform — a coarser, joinable geography
 # than the free-text `city`. Single-table literal: only `policyholders` reads it.
@@ -101,6 +111,8 @@ def build_policyholders(ctx: GenContext) -> pl.DataFrame:
             "age_band": ctx.rng.child("age_band").numpy.choice(
                 np.asarray(_AGE_BANDS, dtype=object), size=n, p=_AGE_BAND_WEIGHTS
             ),
-            "tenure_years": ctx.rng.child("tenure").numpy.integers(0, 16, size=n),
+            "tenure_years": ctx.rng.child("tenure").numpy.choice(
+                _TENURE_VALUES, size=n, p=_TENURE_P
+            ),
         }
     )
