@@ -13,11 +13,11 @@ _As of 2026-07-02._
 | [`streaming`](streaming) | 8 | ✅ Converged | 8 | 13 of 14 done (`subscriptions.mrr` deferred) |
 | [`labor`](labor) | 7 | ✅ Converged (reference collection) | 4 | ✅ Fully done (20 cols) |
 | [`clinic`](clinic) | 6 | ✅ Converged | 10 | ⬜ Surveyed, nothing built yet |
-| [`insurance`](insurance) | 7 | ✅ Converged (2 fixes landed) | 3 | 🔨 2 tables built (`adjusters`, `quotes`); rest surveyed |
+| [`insurance`](insurance) | 8 | ✅ Converged (2 fixes landed) | 3 | 🔨 9 quick-win cols + 3 tables built (`adjusters`, `quotes`, `premium_billing`); high-leverage items surveyed |
 | [`logistics`](logistics) | 5 | ✅ Converged | 3 | ⬜ Surveyed, nothing built yet |
 | [`retail`](retail) | 5 | ⚠️ **Needs investigation** | 3 | ⬜ Surveyed, nothing built yet |
 
-**Totals:** 7 collections, 46 tables.
+**Totals:** 7 collections, 47 tables.
 
 ## Notes
 
@@ -29,7 +29,9 @@ _As of 2026-07-02._
   full ADR/RevPAR revenue split); labor is the worked reference collection.
 - **clinic / logistics / retail** are converged (or near) on realism but their
   enrichment backlogs are surveyed only — candidate columns are written up in each
-  `TODO.md`, none implemented yet. **insurance** has begun implementing its backlog:
-  the `adjusters` and `quotes` tables are built (signal-free), the rest still surveyed.
+  `TODO.md`, none implemented yet. **insurance** is furthest into its backlog: it
+  cleared all 9 quick-win columns and built three signal-free tables (`adjusters`,
+  `quotes`, `premium_billing`), leaving only the scenario-bearing high-leverage items
+  surveyed.
 - Every collection ships a full doc set (`realism-guidance.md` / `realism-log.md` /
   `TODO.md`), an invariant `test_*.py` suite, and a `test_scenarios.py`.

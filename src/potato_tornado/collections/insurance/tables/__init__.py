@@ -13,6 +13,7 @@ from potato_tornado.collections.insurance.tables.claim_payments import build_cla
 from potato_tornado.collections.insurance.tables.claims import build_claims
 from potato_tornado.collections.insurance.tables.policies import build_policies
 from potato_tornado.collections.insurance.tables.policyholders import build_policyholders
+from potato_tornado.collections.insurance.tables.premium_billing import build_premium_billing
 from potato_tornado.collections.insurance.tables.quotes import build_quotes
 
 __all__ = [
@@ -22,5 +23,6 @@ __all__ = [
     "build_claims",
     "build_policies",
     "build_policyholders",
+    "build_premium_billing",
     "build_quotes",
 ]

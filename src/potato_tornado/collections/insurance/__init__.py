@@ -13,6 +13,7 @@ Tables
 - ``adjusters``      : the claims-handler dim.
 - ``policyholders``  : the insured parties, each with a risk tier.
 - ``policies``       : one policy sold per row — the premium side (the plan).
+- ``premium_billing``: the instalment schedule per policy (sums to ``annual_premium``).
 - ``quotes``         : pre-bind quotes upstream of policies; most never convert.
 - ``claims``         : the filings — frequency x severity; most policies produce none.
 - ``claim_payments`` : the payout (the actual), one row per settled claim.
@@ -30,6 +31,7 @@ from potato_tornado.collections.insurance.tables import (
     build_claims,
     build_policies,
     build_policyholders,
+    build_premium_billing,
     build_quotes,
 )
 from potato_tornado.core.collection import Collection, TableSpec
@@ -55,6 +57,12 @@ def build() -> Collection:
                 build_policies,
                 depends_on=("policyholders", "brokers"),
                 description="One policy sold per row — premium, coverage, deductible.",
+            ),
+            TableSpec(
+                "premium_billing",
+                build_premium_billing,
+                depends_on=("policies",),
+                description="Premium instalments per policy — the schedule that sums to premium.",
             ),
             TableSpec(
                 "quotes",

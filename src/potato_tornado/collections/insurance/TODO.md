@@ -18,25 +18,30 @@ attributed. The additions below close those gaps.
 
 ## Quick wins (realism enrichment)
 
-- [ ] **`policyholders.age_band`** (`Utf8`) — `ctx.dist.choice` over {18-25, 26-40, 41-60,
+**All nine shipped 2026-07-02** (see `realism-log.md`) — each drawn off a dedicated
+`ctx.rng.child(...)` stream so existing draws stayed byte-identical, all signal-free, invariants
+pinned in `test_insurance.py` and reconciled into `realism-guidance.md`.
+
+- [x] **`policyholders.age_band`** (`Utf8`) — child `choice` over {18-25, 26-40, 41-60,
       60+} weighted. Unlocks: demographic slicing of frequency/severity.
-- [ ] **`policyholders.tenure_years`** (`Int64`) — `ctx.dist.integers(0, 15)`. Unlocks:
+- [x] **`policyholders.tenure_years`** (`Int64`) — child `integers(0, 15)`. Unlocks:
       retention / loyalty analysis; a covariate for renewal.
-- [ ] **`policies.payment_frequency`** (`Utf8`) — `ctx.dist.choice` {monthly, quarterly,
+- [x] **`policies.payment_frequency`** (`Utf8`) — child `choice` {monthly, quarterly,
       annual}. Unlocks: billing-cadence mix; composes with `annual_premium`.
-- [ ] **`policies.channel`** (`Utf8`) — {broker, direct, aggregator} weighted. Unlocks:
+- [x] **`policies.channel`** (`Utf8`) — {broker, direct, aggregator} weighted. Unlocks:
       distribution-channel mix (a bought-vs-sold cut alongside `broker_id`).
-- [ ] **`claims.reported_channel`** (`Utf8`) — {phone, app, broker, web}. Unlocks: FNOL
+- [x] **`claims.reported_channel`** (`Utf8`) — {phone, app, broker, web}. Unlocks: FNOL
       (first-notice-of-loss) channel analysis.
-- [ ] **`brokers.tenure_years`** (`Int64`) and **`brokers.commission_rate`** (`Float64`, ~0.08–0.15)
+- [x] **`brokers.tenure_years`** (`Int64`) and **`brokers.commission_rate`** (`Float64`, 0.08–0.15)
       — per-broker attributes. Unlocks: producer economics (commission on `annual_premium`).
-- [ ] **`policyholders.state`** (`Utf8`) — `ctx.dist.choice` over a US-state catalog literal
-      (population-weighted). Unlocks: state-level loss ratios and a regulatory cut (rates are
-      filed per state) — a coarser, joinable geography than the existing free-text `city`.
-- [ ] **`policies.bundled`** (`Boolean`) — **derivable, no draw**: true when the holder appears
-      on ≥2 `policies` rows (the multi-policy structure already exists; holders average ~1.75
-      policies). Unlocks: bundling / cross-sell mix from data already present, no new randomness.
-- [ ] **`policies.auto_renew`** (`Boolean`) — `ctx.dist.bernoulli(~0.7)`. Unlocks: retention
+- [x] **`policyholders.state`** (`Utf8`) — child `choice` over a US-state catalog literal
+      (50 states + DC, population-weighted). Unlocks: state-level loss ratios and a regulatory
+      cut (rates are filed per state) — a coarser, joinable geography than the free-text `city`.
+- [x] **`policies.bundled`** (`Boolean`) — **derived, no draw**: true when the holder appears
+      on ≥2 `policies` rows. Measured ≈ 0.71 of policies (the 5000/4000 policy-per-holder ratio,
+      scale-independent — the earlier "~1.75 policies/holder" estimate was off). Unlocks:
+      bundling / cross-sell mix from data already present, no new randomness.
+- [x] **`policies.auto_renew`** (`Boolean`) — child `bernoulli(~0.7)`. Unlocks: retention
       posture; composes with `status` (lapsed) and the future `renewal_count`.
 
 ## High-leverage additions
@@ -69,6 +74,12 @@ attributed. The additions below close those gaps.
 - **Unlocks:** new-vs-renewal book split; retention curves; premium drift on renewal.
 - **Class:** realism enrichment (a lifecycle dimension). A prior-policy FK (linking successive
   terms) would be a **new relationship**, closer to a schema change — note if pursued.
+- **Tension (noted 2026-07-02):** a non-zero `renewal_count` implies pre-window terms, which
+  sits awkwardly against the documented **Cold-start book** simplification (the in-force grows
+  from zero at `start_date`, *no backdated policies*). Either scope it as an abstract lifecycle
+  marker uncorrelated with `start_date` (accepting the mild inconsistency, like the flat-annual
+  premium), or relax the cold-start note first. Decide before building — this is why it wasn't
+  swept in with the quick wins.
 
 ### 5. `brokers.commission_rate` → producer performance
 - [ ] With `commission_rate` (quick win) plus a per-broker `loss_ratio` rollup, the broker dim
@@ -123,23 +134,15 @@ existing `ctx` primitives — no new `core/distributions.py` helper.
       remains a candidate for `/scenario:draft-or-propose`.
 
 ### `premium_billing`
-- [ ] **Grain:** one row per premium instalment on a policy. **Joins:**
-      `depends_on=("policies",)`, FK `premium_billing.policy_id → policies`. Expand each policy
-      into N instalments by its `payment_frequency` (the quick-win field — monthly=12 /
-      quarterly=4 / annual=1) so the instalments **sum to `annual_premium`** (an arithmetic
-      identity to pin).
-- **Key columns:** `billing_id` (`Utf8`), `policy_id` (`Utf8`), `due_date` (`Date`, stepped
-      from `start_date`), `amount` (`Float64`, `annual_premium / n`), `paid_date` (`Date`,
-      nullable), `status` (`Utf8`: paid / late / missed via `ctx.dist.choice`).
-- **Unlocks:** billing cash-flow and **delinquency** analytics; ties premium to a calendar
-      instead of one flat annual figure.
-- **Class:** realism enrichment (the instalment schedule), with a **scenario-bearing** angle
-      → `/scenario:draft-or-propose` if delinquency concentrates (e.g. monthly-pay or high_risk
-      policies miss more). Composes with — and **depends on** — the `policies.payment_frequency`
-      quick-win. Decomposes the annual premium without contradicting the "flat annual figure"
-      simplification (the instalments still sum to it).
-- **Wiring:** new `tables/premium_billing.py` builder + a `TableSpec(depends_on=("policies",))`
-      in `__init__.py`. No `registry.py` change.
+- [x] **`premium_billing`** — **implemented 2026-07-02** (see `realism-log.md`). One row per
+      instalment (`billing_id`, `policy_id`, `installment_number`, `due_date`, `amount`,
+      `status`, nullable `paid_date`); N per policy by `payment_frequency` (12 / 4 / 1), amounts
+      **sum to `annual_premium`** to the cent (last instalment absorbs the rounding remainder).
+      `status` (paid 0.90 / late 0.07 / missed 0.03) is **signal-free** — the concentrating
+      delinquency funnel (monthly-pay / high_risk miss more) was *not* planted; it remains a
+      candidate for `/scenario:draft-or-propose`. Drawn off its own name-keyed `premium_billing`
+      streams, so every other table stays byte-identical. Pinned 8 invariant tests (FK, the
+      sum-to-premium identity, count-by-cadence, `paid_date` null-iff-missed, date ordering).
 
 ### Tables that would require revisiting a deliberate simplification
 

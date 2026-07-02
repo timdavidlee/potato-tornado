@@ -61,3 +61,26 @@ sub-population; residual items are documented deliberate simplifications (open i
   blindly): `claim_status_history` (vs one-payout-per-claim), `coverage_lines` (vs the
   single-limit payout arithmetic), and `reinsurance_treaties` (vs pure paid÷premium; closer to
   a new collection). Nothing implemented — the backlog is the open work.
+- **2026-07-02 — Quick-win enrichment: all 9 fields shipped.** Cleared the entire "Quick wins"
+  block of `TODO.md` in one pass. Added `policyholders.{state, age_band, tenure_years}`,
+  `policies.{channel, payment_frequency, auto_renew, bundled}`, `brokers.{tenure_years,
+  commission_rate}`, and `claims.reported_channel`. `state` is population-weighted over 50
+  states + DC; `bundled` is **derived** (holder on ≥2 policies, ≈ 0.71 of policies, no draw);
+  every other field draws off a **dedicated `ctx.rng.child(...)` stream**, so all existing
+  premium / claim / quote numerics stay byte-identical and the scenario magnitudes are
+  untouched. All fields are **signal-free** (independent of frequency/severity/premium/outcome)
+  — the demographic, channel, and producer-economics signals remain scenario candidates.
+  Pinned 8 invariant tests (catalog membership, bounded ranges, `bundled` derivation) and
+  reconciled `realism-guidance.md` (catalogs, mixes, a "carries no signal" simplification).
+- **2026-07-02 — New table: `premium_billing` (instalment schedule).** Realised the
+  `premium_billing` candidate from `TODO.md` (8th insurance table). One row per instalment,
+  N by `payment_frequency` (12 / 4 / 1), amounts **sum to `annual_premium`** to the cent (the
+  last instalment absorbs the rounding remainder — an arithmetic identity pinned in a test).
+  `status` (paid 0.90 / late 0.07 / missed 0.03) and the on-time/late payment lag are
+  **signal-free**, drawn off dedicated `premium_billing` child streams so every other table
+  stays byte-identical. Composes with the `payment_frequency` quick-win and **decomposes** the
+  flat annual premium without contradicting it (documented as a refinement, not a re-rating).
+  Pinned 8 invariant tests; reconciled `realism-guidance.md` (row count, an invariants block, a
+  billing-mix line, two simplifications) and the README table row. The concentrating-delinquency
+  funnel remains a scenario candidate. Also flagged a **cold-start tension** on the still-open
+  `renewal_count` item in `TODO.md` (pre-window terms vs. the no-backdated-policies simplification).
