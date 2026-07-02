@@ -57,7 +57,7 @@ def build() -> Collection:
             TableSpec(
                 "time_entries",
                 build_time_entries,
-                depends_on=("assignments", "shifts"),
+                depends_on=("assignments", "shifts", "departments"),
                 description="Actual clock-in/out, no-shows and overtime.",
             ),
         ),

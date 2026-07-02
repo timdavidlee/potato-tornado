@@ -60,6 +60,13 @@ that promotes a listed *deliberate simplification* or exercises tables no curren
 touches. If two are equally strong and genuinely different, it's fine to write both — but
 default to one clean doc.
 
+**A scenario is an unexpected insight, usually about a subset of the data** (a room class, a
+shift window, a region), not a flat fact true of the dataset as a whole. If your strongest
+candidate turns out to be a broad top-line trend, invariant, or overall mix with no
+surprising segment behind it, it isn't a scenario — that fact belongs in
+`realism-guidance.md` instead (see step 5). Discard it as a scenario candidate and look for
+the next one.
+
 **Propose a new table if necessary.** Most scenarios should live in the columns that already
 exist, but if the strongest signal genuinely needs data the collection doesn't yet model
 (e.g. a new dimension or event stream), it's fine to propose a **new table** as part of the
@@ -95,6 +102,9 @@ measures and firms it up).
 
 The new doc may make part of `collections/<name>/realism-guidance.md` stale — reconcile it:
 
+- If a candidate you discarded in step 3 for being a broad trend rather than an unexpected
+  subset insight is genuinely worth documenting, add it to `realism-guidance.md`'s
+  Invariants or Distributions & mixes section instead of writing a scenario doc for it.
 - If the scenario **promotes a listed deliberate simplification** (you're now teaching the
   thing the collection used to hand-wave), remove or reword that bullet so the rubric no
   longer claims the gap exists.

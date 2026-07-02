@@ -39,16 +39,22 @@ update the matching line below in the same change.
   [0.85, 1.2]×.
 - **Shift shape.** morning/afternoon/night windows roughly uniform; durations 8h dominant
   (0.70), then 10h (0.20), 12h (0.10).
-- **Attendance.** ~4% no-show (Bernoulli p=0.96). Clock-in jitter is normal with a slight
-  late bias (mean +3 min). Overtime is a right-skewed non-negative tail (mean ≈0.15h) — most
-  shifts run near plan, a few run long.
+- **Attendance.** ~4% no-show overall, but keyed to the shift window: night ≈0.075,
+  morning/afternoon ≈0.02–0.025 (roughly a 4× spread). Clock-in jitter is normal with a
+  slight late bias (mean +3 min).
+- **Overtime.** A right-skewed non-negative tail, concentrated by department: the Kitchen
+  draws from Normal(0.6, 1.3) (mean ≈0.88h, ~37% of shifts 1h+ over), every other
+  department from Normal(0.12, 0.45) (mean ≈0.25h). Overall mean ≈0.34h > median ≈0.15h —
+  most shifts run near plan, the Kitchen supplies the blow-outs.
 - **Staffing noise.** Rosters target `required_headcount` ±15%, occasionally over/under, and
   never exceed the department's employee pool.
 
 ## Deliberate simplifications (intended — do not "fix")
 
 - One `time_entries` row per assignment: no multiple punches, meal breaks, or split shifts.
-- Attendance is independent per row — no per-employee reliability, no streaks.
+- Attendance is independent per row — the no-show probability varies by shift window, but
+  there is no per-employee reliability and no streaks. Likewise overtime depends on the
+  department but not on the individual employee.
 - Employees are rostered only in their home department (no cross-department coverage).
 - No terminations or leave: every employee is active across the whole window, pay is static
   (no raises with tenure), and there are no PTO/holiday/overnight premiums.

@@ -41,7 +41,9 @@ update the matching line below in the same change.
 
 ## Distributions & mixes (should look like the real world)
 
-- **Plan mix.** Basic 0.30 / Standard 0.50 (largest) / Premium 0.20. See
+- **Plan mix.** Overall Basic ≈0.28 / Standard ≈0.46 (largest) / Premium ≈0.26, but keyed to
+  region: the US draws Basic 0.18 / Standard 0.34 / Premium 0.48 (Premium modal), every other
+  region draws Basic 0.34 / Standard 0.55 / Premium 0.11. See
   `scenarios/standard-is-the-most-popular-plan.md`.
 - **Subscription status.** active 0.78 / cancelled 0.22.
 - **Tenure.** Whole months ~ Poisson(6)+1, capped at 24 (right-skewed).
@@ -66,7 +68,7 @@ update the matching line below in the same change.
   hierarchy are the intended expansion; only the subscription and rental revenue streams
   exist today.
 - **Flat lifecycle.** One subscription per account, no plan upgrades/downgrades, and tenure
-  is drawn independently of plan — a natural future churn scenario.
+  is drawn independently of plan and region — a natural future churn scenario.
 - **Rentals are independent of tenure.** A subscriber can rent on any date in the window,
   regardless of whether their subscription was active then. Tightening rentals to fall
   within an active subscription window is a candidate future invariant.

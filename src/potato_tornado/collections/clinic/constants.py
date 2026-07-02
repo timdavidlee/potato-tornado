@@ -21,8 +21,9 @@ SPECIALTIES = [
 
 # Appointment lifecycle. A booked slot is either kept (completed), missed
 # (no_show), called off ahead of time (cancelled), or still on the books
-# (scheduled). No-show is the planted teaching signal, and its rate rises with
-# booking lead time (see scenarios/no-show-rises-with-lead-time.md) — so the
+# (scheduled). No-show is the planted teaching signal: its rate rises with
+# booking lead time (see scenarios/no-show-rises-with-lead-time.md) and runs
+# highest for New Patient visits (see scenarios/no-show-rate.md) — so the
 # generator computes no_show per-row rather than drawing it from a flat weight.
 # These marginal weights document the mix the per-row model is tuned to hit.
 APPT_STATUS = ["completed", "no_show", "cancelled", "scheduled"]

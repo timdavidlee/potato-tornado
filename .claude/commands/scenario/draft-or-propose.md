@@ -51,6 +51,13 @@ signal, or would it need a tune? Say which — the review-and-edit step needs th
 point. Don't fabricate a magnitude; if the data doesn't clearly support the signal yet,
 give a target magnitude to aim for and flag it as "to be planted".
 
+**A scenario is an unexpected insight, usually about a subset of the data** (a room class, a
+shift window, a region) — not a flat fact true of the dataset as a whole. Drop any candidate
+that's really a broad top-line trend, invariant, or overall mix with no surprising segment
+behind it; that belongs in `collections/<name>/realism-guidance.md`'s Invariants or
+Distributions & mixes section, not a scenario doc. If it's genuinely missing there, add it
+directly rather than writing it up as a scenario.
+
 ## 3. Write the doc(s)
 
 For each agreed scenario, write `collections/<name>/scenarios/<slug>.md` where `<slug>` is
