@@ -104,6 +104,16 @@ def test_rentals_are_locally_licensed(streaming: dict[str, pl.DataFrame]) -> Non
     assert with_region.join(allowed, on=["title_id", "region"], how="anti").height == 0
 
 
+def test_rentals_are_not_dated_before_the_title_released(
+    streaming: dict[str, pl.DataFrame],
+) -> None:
+    # You can't rent a title before it exists: rented_date >= the title's release_date.
+    with_release = streaming["rentals"].join(
+        streaming["titles"].select("title_id", "release_date"), on="title_id"
+    )
+    assert with_release.filter(pl.col("rented_date") < pl.col("release_date")).height == 0
+
+
 def test_rental_price_is_a_known_price_point(streaming: dict[str, pl.DataFrame]) -> None:
     assert set(streaming["rentals"]["price"].to_list()) <= {4.99, 6.99, 19.99}
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import polars as pl
 import pytest
 
@@ -119,6 +121,40 @@ def test_forecast_actuals_never_exceed_property_capacity(hotel: dict) -> None:
         pl.col("actual_occupied_rooms") > pl.col("property_id").replace_strict(caps)
     )
     assert over.height == 0
+
+
+def test_forecast_actuals_reconcile_with_stay_occupancy(hotel: dict) -> None:
+    # actual_occupied_rooms is not an independent draw: it is the room-nights derived from
+    # stays for that (property, day), clamped at the property's capacity. Recompute occupancy
+    # from stays and confirm every forecast row agrees with min(room_nights, total_rooms).
+    caps = dict(
+        zip(
+            hotel["properties"]["property_id"].to_list(),
+            hotel["properties"]["total_rooms"].to_list(),
+            strict=True,
+        )
+    )
+    occupied: dict[tuple[str, object], int] = {}
+    for pid, check_in, nights in zip(
+        hotel["stays"]["property_id"].to_list(),
+        hotel["stays"]["actual_check_in"].to_list(),
+        hotel["stays"]["actual_nights"].to_list(),
+        strict=True,
+    ):
+        for offset in range(int(nights)):
+            key = (pid, check_in + timedelta(days=offset))
+            occupied[key] = occupied.get(key, 0) + 1
+    mismatched = [
+        1
+        for pid, day, actual in zip(
+            hotel["demand_forecast"]["property_id"].to_list(),
+            hotel["demand_forecast"]["forecast_date"].to_list(),
+            hotel["demand_forecast"]["actual_occupied_rooms"].to_list(),
+            strict=True,
+        )
+        if min(occupied.get((pid, day), 0), caps[pid]) != actual
+    ]
+    assert len(mismatched) == 0
 
 
 def test_forecast_tracks_actual_within_about_ten_percent(hotel_full: dict) -> None:

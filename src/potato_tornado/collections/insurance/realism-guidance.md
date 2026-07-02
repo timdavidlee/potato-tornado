@@ -36,9 +36,18 @@ update the matching line below in the same change.
   `claim_payments` ≈ 490 (~79% of claims — the settled share).
 - **Risk-tier mix.** preferred 0.45 / standard 0.40 / high_risk 0.15.
 - **Product mix.** auto 0.50 / home 0.30 / renters 0.20.
-- **annual_premium.** Lognormal (σ ≈ 0.4) whose median is the product base × tier
-  multiplier — median ≈ **preferred \$860 / standard \$1,210 / high_risk \$2,120**. Right-skew
-  within each tier. Premium multipliers 0.70 / 1.00 / 1.75.
+- **annual_premium.** Lognormal (σ ≈ 0.4) whose median is the product base × tier multiplier,
+  then nudged by the policy's coverage step and deductible (see next line) — median ≈
+  **preferred \$850 / standard \$1,195 / high_risk \$2,070**. Right-skew within each tier.
+  Premium multipliers 0.70 / 1.00 / 1.75.
+- **Premium ↔ coverage / deductible (weak co-movement).** Premium rises with the coverage step
+  (factor 0.90 / 1.00 / 1.15 for {0.5, 1.0, 2.0}×) and falls with the deductible (1.06 / 1.00 /
+  0.92 for {\$250, \$500, \$1,000}), both centred on their weighted mean so the tier medians
+  above are unchanged. Within a product+tier cell this shows as a **weak positive**
+  premium↔coverage correlation (≈ **+0.15 to +0.24**) and a **weak negative** premium↔deductible
+  correlation (≈ **−0.13**): mean premium climbs ~30% from the 0.5× to the 2.0× coverage step
+  and drops ~13% from the \$250 to the \$1,000 deductible. It is deliberately buried in the
+  lognormal scatter — a plausible underwriting nudge, **not** a discoverable subset gap.
 - **coverage_limit / deductible.** Coverage is the product base (auto \$60k / home \$300k /
   renters \$30k) × a per-policy step {0.5, 1.0, 2.0}; deductible ∈ {\$250, \$500, \$1,000}
   weighted 0.30 / 0.45 / 0.25, always `< coverage_limit`.
@@ -59,9 +68,10 @@ update the matching line below in the same change.
   0.61 / 0.18 / 0.13 / 0.08). See `scenarios/adjudication-funnel-reported-vs-paid.md`.
 - **paid_amount.** approved = `clip(min(reported, coverage_limit) − deductible, 0, ∞)`;
   partial = 0.3–0.8× that. Total paid ≈ 65% of total reported.
-- **Loss ratio (Σ paid ÷ Σ premium).** Overall ≈ **0.62**, rising **preferred ≈ 0.43 →
-  standard ≈ 0.67 → high_risk ≈ 0.79** (tier means; the standard/high_risk gap is narrow and
-  can invert on a given seed — see `scenarios/loss-ratio-rises-with-risk-tier.md`).
+- **Loss ratio (Σ paid ÷ Σ premium).** Overall ≈ **0.61**, rising **preferred ≈ 0.43 →
+  standard ≈ 0.60 → high_risk ≈ 0.85** (tier means over several seeds; the per-tier ratios
+  carry ±0.15 seed noise and the standard/high_risk gap can narrow or invert on a given seed —
+  see `scenarios/loss-ratio-rises-with-risk-tier.md`).
 - **peril mix.** Roughly uniform over the six perils — no product or geography coupling.
 
 ## Deliberate simplifications (intended — do not "fix")
@@ -114,7 +124,7 @@ select count(*) filter (where claim_date >= (select max(claim_date) from claims)
                                  and claim_date <  (select max(claim_date) from claims) - interval 90 day), 0) as tail_ratio
 from claims;
 
--- loss ratio rises with tier (≈0.43 → ≈0.79; standard↔high_risk gap is narrow)
+-- loss ratio rises with tier (≈0.43 → ≈0.85; ±0.15 seed noise, gap can narrow)
 select ph.risk_tier,
        sum(pay.paid_amount) / (select sum(p2.annual_premium) from policies p2
                                join policyholders ph2 using (policyholder_id)

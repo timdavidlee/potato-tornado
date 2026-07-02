@@ -152,6 +152,23 @@ from existing `ctx.dist` / `ctx.rng.child` / catalog literals.
 - **Devices table.** A per-account device registry (many devices per subscriber) is a new
   entity; `subscribers.device_platform` (quick win) is the in-scope single-column stand-in.
 
+## Open realism items to investigate
+
+Too-synthetic / drift candidates for `/data-collection:review-edit-regen-for-realism`
+(existing data to investigate, not new fields). The realism-log records the *runs*; these are
+the *open* items.
+
+- [ ] **No heavy-renter concentration.** Rentals spread ~uniformly across subscribers
+      (rentals/subscriber ≈ Poisson, max a handful) — no whale minority driving PVOD revenue.
+      The strongest realism-flavoured candidate (documented as a future scenario).
+- [ ] **Subscription lifecycle is birth-only.** Rows capture the subscription window (signup)
+      but not right-censoring / churn dynamics after it — a candidate future invariant.
+- [ ] **`is_premium` is release-date independent.** Newer releases aren't tilted toward the
+      premium tier the way real PVOD is; the premium-by-release-year cross-tab reads flat
+      (scenario-bearing).
+- [ ] **Device/region mixes are flat, unplanted.** No device-mix-by-region or maturity-by-genre
+      skew — realism dimensions to slice by, currently uniform.
+
 ## When the list is done
 
 - [x] **Revise `realism-guidance.md`.** After the fields above land, reconcile the realism

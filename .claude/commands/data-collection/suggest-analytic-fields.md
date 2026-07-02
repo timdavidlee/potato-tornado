@@ -81,8 +81,11 @@ mind: a field that keys off another table implies a `depends_on` the implementer
 ## 4. Write the enrichment TODO doc
 
 Write `collections/<name>/TODO.md` (extend it in place if it already exists — don't clobber
-prior items; add/curate). Order **quick wins first, then high-leverage items**, as a
-checklist. Use this structure:
+prior items; add/curate). `TODO.md` is the collection's shared **open backlog**: it may also
+hold an **Open realism items to investigate** section (owned by
+`/data-collection:review-edit-regen-for-realism`) — leave it intact and add your
+field-enrichment sections alongside it. Order **quick wins first, then high-leverage items**,
+as a checklist. Use this structure:
 
 ```markdown
 # <name> — field-enrichment TODO
@@ -127,11 +130,22 @@ Keep it honest and buildable: real `table.column` targets, concrete dtypes, draw
 against real `ctx` primitives, and every field marked realism vs scenario-bearing. It should
 be actionable later without re-deriving context.
 
+## 4b. Log the run in `realism-log.md`
+
+The backlog you just wrote is *open work*; `realism-log.md` records that a survey **happened**
+(see collections/CLAUDE.md, "Realism log and TODO"). Append a dated bullet under
+`## Field-enrichment runs` in `collections/<name>/realism-log.md` — how many quick-win vs
+high-leverage fields you surveyed, the headline ones, and that the backlog landed in `TODO.md`
+with nothing implemented yet. Mirror the existing entries. If the collection has no
+`realism-log.md` yet, seed it (status + this run) per collections/CLAUDE.md. Don't put the open
+suggestions in the log — those live in `TODO.md`.
+
 ## 5. Report
 
 Summarize: the collection you enriched, how many quick-win vs high-leverage fields you
 suggested (with the headline ones), which are scenario-bearing (and thus belong to
 `/scenario:draft-or-propose`), any field that would need a new `core/distributions.py` helper
-or that really implies a *new table* (out of scope → `/data-collection:propose`), and the doc
-path. Note that nothing was implemented — the next step is to pick fields and realize them via
-the realism or scenario command.
+or that really implies a *new table* (out of scope → `/data-collection:propose`), the `TODO.md`
+doc path, and the `realism-log.md` field-enrichment run you appended. Note that nothing was
+implemented — the next step is to pick fields and realize them via the realism or scenario
+command.

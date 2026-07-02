@@ -61,10 +61,8 @@ dates are bounded by it (a member who leaves mid-project rolls off on their term
   top of each department (~8–9%). Flat realism (no span-of-control signal); reporting never
   crosses departments and is independent of project staffing.
 
-**Carry caveats before doing:**
-- **`project_members.bill_rate` nullability:** it's currently populated for *every* member even
-  though `is_billable` now exists — revisit whether non-billable members should get a null
-  `bill_rate` when convenient.
+**Carry caveats before doing:** none outstanding. (`project_members.bill_rate` is now null for
+non-billable members — resolved once `is_billable` landed.)
 
 **Scenario signals set up but deliberately not planted** (route to
 `/scenario:draft-or-propose labor`): fixed-fee/ industry realization dip (item 2), non-billable
@@ -128,7 +126,7 @@ or juniors churning faster, item 10).
   surprise → route to `/scenario:draft-or-propose` with that signal named. Keep the base draw
   flat for realism; plant the compression only as a scenario.
 
-### 2. `project_members.bill_rate` — done (flat; non-null pending item 3)
+### 2. `project_members.bill_rate` — done (flat; null for non-billable members)
 - [x] The negotiated rate this member is billed to the client at *on this project* = the
   employee's `standard_bill_rate` × a realization factor < 1 (a discount), nullable when the
   member is non-billable (`Float64`). Draw sketch: join `standard_bill_rate` from `employees`
@@ -286,3 +284,21 @@ or juniors churning faster, item 10).
 - No new `core/distributions.py` helper is required — every draw above composes from existing
   `ctx.dist` (`choice` / `bernoulli` / `integers` / `clamped_normal` / `lognormal` /
   `dates_between`), `ctx.rng.child`, and `ctx.entities.companies`.
+
+## Open realism items to investigate
+
+Too-synthetic / drift candidates for `/data-collection:review-edit-regen-for-realism`
+(existing data to investigate, not new fields). The realism-log records the *runs*; these are
+the *open* items. Most here are also *future-scenario* candidates — route signal-bearing ones
+to `/scenario:draft-or-propose`.
+
+- [ ] **Consulting dimensions are flat and mutually independent.** `industry` / `billing_type`
+      / `priority` are drawn independently of each other and of `department_id`; an industry ×
+      billing_type cross-tab reads uniform. Confirm the flatness is acceptable or plant a
+      correlated mix.
+- [ ] **Attendance / overtime independence.** No per-employee reliability or streaks; overtime
+      depends on department, not individual. Flag only if per-person autocorrelation is
+      expected.
+- [ ] **Bill / project economics are flat.** Realization, markup-by-practice, and budget burn
+      carry no planted slice signal — any margin-by-practice roll-up reads flat (scenario-bearing
+      → `/scenario:draft-or-propose`).

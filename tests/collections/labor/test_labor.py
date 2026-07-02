@@ -191,6 +191,17 @@ def test_member_bill_rate_never_exceeds_standard_rate(labor: dict[str, pl.DataFr
     assert out_of_band.height == 0
 
 
+def test_member_bill_rate_is_set_exactly_for_billable_members(
+    labor: dict[str, pl.DataFrame],
+) -> None:
+    joined = labor["project_members"].join(
+        labor["employees"].select("employee_id", "is_billable"), on="employee_id"
+    )
+    # bill_rate is populated iff the member is client-billable; null otherwise.
+    inconsistent = joined.filter(pl.col("is_billable") == pl.col("bill_rate").is_null())
+    assert inconsistent.height == 0
+
+
 def test_practice_type_matches_enabling_set(labor: dict[str, pl.DataFrame]) -> None:
     expected = labor["departments"].select(
         pl.when(pl.col("name").is_in(list(ENABLING_DEPARTMENTS)))
