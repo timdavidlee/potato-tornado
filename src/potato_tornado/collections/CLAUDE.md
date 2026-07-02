@@ -8,6 +8,10 @@ used on the CLI (`generate <name>`).
 
 ```
 collections/
+  INVENTORY.md    directory-level index: one row per collection (table count,
+                  realism status, scenario coverage, field-enrichment backlog).
+                  Generated — regenerate with `/data-collection:refresh-inventory`
+                  rather than hand-editing, so it stays in sync with the packages.
   <name>/
     __init__.py     assembles the Collection from its TableSpecs and calls
                     register("<name>", build) at import time.
