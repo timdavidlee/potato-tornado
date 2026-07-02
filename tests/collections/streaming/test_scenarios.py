@@ -104,3 +104,17 @@ def test_premium_titles_score_higher(streaming: dict[str, pl.DataFrame]) -> None
         .iter_rows()
     )
     assert means[True] > means[False]
+
+
+def test_catalog_share_runs_from_us_widest_to_japan_narrowest(
+    streaming: dict[str, pl.DataFrame],
+) -> None:
+    n_titles = streaming["titles"].height
+    shares = {
+        region: count / n_titles
+        for region, count in streaming["title_availability"].group_by("region").len().iter_rows()
+    }
+    widest = max(shares, key=lambda r: shares[r])
+    narrowest = min(shares, key=lambda r: shares[r])
+    # US carries most of the catalogue (~0.87), Japan the least (~0.30): a ~2.9x gradient.
+    assert widest == "US" and narrowest == "JP" and shares["US"] > 2.5 * shares["JP"]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import numpy as np
 import polars as pl
@@ -103,9 +103,45 @@ def build_employees(ctx: GenContext) -> pl.DataFrame:
     # Work arrangement — flat org-wide mix. Own child stream.
     work_mode = ctx.rng.child("work_mode").numpy.choice(WORK_MODES, size=n, p=WORK_MODE_WEIGHTS)
 
+    # Termination: ~18% of staff have left the firm at some point. A leaver's date is
+    # a tenure offset after hire (≥90 days), kept strictly before `end_date`; active
+    # staff have null. Flat attrition — drawn independently of practice, role, and
+    # tenure (a high-turnover-slice signal is a future scenario). Own child stream so
+    # it doesn't shift the draws above. Staffing respects it: `assignments` and
+    # `project_members` never place an employee before hire or after termination.
+    attr_rng = ctx.rng.child("attrition").numpy
+    end_date = ctx.config.end_date
+    left = attr_rng.random(n) < 0.18
+    tenure_frac = attr_rng.random(n)
+    termination_date: list[date | None] = []
+    for hired, has_left, frac in zip(hire, left, tenure_frac, strict=True):
+        span = (end_date - hired).days
+        if not has_left or span <= 90:
+            termination_date.append(None)
+            continue
+        offset = 90 + round(float(frac) * (span - 1 - 90))
+        termination_date.append(hired + timedelta(days=offset))
+
+    # Manager: a more-senior colleague in the same department. Own child stream so
+    # it doesn't shift the draws above. Each employee reports to a randomly chosen
+    # same-department employee of a strictly higher role rung; whoever sits at the
+    # top of their department (nobody above them) has no manager (null).
+    employee_ids = [f"EMP-{i:05d}" for i in range(1, n + 1)]
+    rung = {r: i for i, r in enumerate(ROLES)}
+    emp_rung = [rung[r] for r in roles]
+    by_dept: dict[str, list[int]] = {}
+    for i, d in enumerate(dept_of):
+        by_dept.setdefault(d, []).append(i)
+    mgr_rng = ctx.rng.child("manager").numpy
+    manager_id: list[str | None] = [None] * n
+    for i, d in enumerate(dept_of):
+        seniors = [j for j in by_dept[d] if emp_rung[j] > emp_rung[i]]
+        if seniors:
+            manager_id[i] = employee_ids[int(mgr_rng.choice(seniors))]
+
     return pl.DataFrame(
         {
-            "employee_id": [f"EMP-{i:05d}" for i in range(1, n + 1)],
+            "employee_id": employee_ids,
             "full_name": people["full_name"],
             "email": people["email"],
             "department_id": dept_of,
@@ -113,12 +149,14 @@ def build_employees(ctx: GenContext) -> pl.DataFrame:
             "employment_type": employment,
             "weekly_capacity_hours": capacity,
             "hire_date": hire,
+            "termination_date": pl.Series(termination_date, dtype=pl.Date),
             "hourly_rate": hourly,
             "standard_bill_rate": standard_bill_rate,
             "is_billable": pl.Series(is_billable, dtype=pl.Boolean),
             "target_utilization_pct": pl.Series(target_util, dtype=pl.Int64),
             "primary_skill": primary_skill,
             "work_mode": work_mode,
+            "manager_id": pl.Series(manager_id, dtype=pl.Utf8),
             # Home office. Drawn last so it doesn't shift the draws above.
             "location_city": ctx.dist.choice(n, LOCATIONS, LOCATION_WEIGHTS),
         }

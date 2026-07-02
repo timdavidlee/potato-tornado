@@ -8,16 +8,28 @@ Subset-signal magnitudes live in ``test_scenarios.py``.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import polars as pl
 import pytest
 
 from potato_tornado.core.config import GenerationConfig
 from potato_tornado.runner import generate
 
+# Days-per-month the claims generator uses to turn `term_months` into a term end.
+_DAYS_PER_MONTH = 30.4
+
 
 @pytest.fixture(scope="module")
 def insurance() -> dict[str, pl.DataFrame]:
     return generate("insurance", GenerationConfig(seed=13, scale=0.3))
+
+
+@pytest.fixture(scope="module")
+def insurance_full() -> dict[str, pl.DataFrame]:
+    # Full scale for distribution-shape checks that need enough claims per time
+    # bucket to be stable across seeds.
+    return generate("insurance", GenerationConfig(seed=7, scale=1.0))
 
 
 def test_policies_reference_policyholders(insurance: dict[str, pl.DataFrame]) -> None:
@@ -77,6 +89,43 @@ def test_paid_date_is_on_or_after_claim_date(insurance: dict[str, pl.DataFrame])
         insurance["claims"].select("claim_id", "claim_date"), on="claim_id"
     )
     assert dated.filter(pl.col("paid_date") < pl.col("claim_date")).height == 0
+
+
+def test_claim_date_on_or_after_policy_start(insurance: dict[str, pl.DataFrame]) -> None:
+    dated = insurance["claims"].join(
+        insurance["policies"].select("policy_id", "start_date"), on="policy_id"
+    )
+    assert dated.filter(pl.col("claim_date") < pl.col("start_date")).height == 0
+
+
+def test_claim_date_within_term_and_run_window(insurance: dict[str, pl.DataFrame]) -> None:
+    end_date = GenerationConfig().end_date
+    dated = insurance["claims"].join(
+        insurance["policies"].select("policy_id", "start_date", "term_months"), on="policy_id"
+    )
+    term_end = pl.col("start_date") + pl.duration(
+        days=(pl.col("term_months") * _DAYS_PER_MONTH).round().cast(pl.Int64)
+    )
+    latest = pl.min_horizontal(term_end, pl.lit(end_date))
+    assert dated.filter(pl.col("claim_date") > latest).height == 0
+
+
+def test_claims_not_piled_at_window_end(insurance_full: dict[str, pl.DataFrame]) -> None:
+    # Claim counts scale with each policy's *in-window* exposure, so the final 90
+    # days (in-force is stable by then) hold no more claims than the preceding 90 —
+    # regression guard against counting a full contractual term into a clipped tail.
+    end_date = GenerationConfig().end_date
+    claim_date = pl.col("claim_date")
+    last90 = insurance_full["claims"].filter(claim_date >= end_date - timedelta(days=90)).height
+    prior90 = (
+        insurance_full["claims"]
+        .filter(
+            (claim_date >= end_date - timedelta(days=180))
+            & (claim_date < end_date - timedelta(days=90))
+        )
+        .height
+    )
+    assert last90 < 1.5 * prior90
 
 
 def test_coverage_limit_exceeds_deductible(insurance: dict[str, pl.DataFrame]) -> None:

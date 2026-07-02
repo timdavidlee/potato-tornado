@@ -46,6 +46,28 @@ def test_time_entries_are_one_to_one_with_assignments(labor: dict[str, pl.DataFr
     assert labor["time_entries"].height == labor["assignments"].height
 
 
+def test_assignments_only_roster_employed_staff(labor: dict[str, pl.DataFrame]) -> None:
+    # An employee is rostered onto a shift only while employed: on/after hire and
+    # strictly before termination (when they left).
+    joined = (
+        labor["assignments"]
+        .join(
+            labor["employees"].select("employee_id", "hire_date", "termination_date"),
+            on="employee_id",
+        )
+        .join(labor["shifts"].select("shift_id", "planned_start"), on="shift_id")
+        .with_columns(pl.col("planned_start").dt.date().alias("shift_date"))
+    )
+    invalid = joined.filter(
+        (pl.col("shift_date") < pl.col("hire_date"))
+        | (
+            pl.col("termination_date").is_not_null()
+            & (pl.col("shift_date") >= pl.col("termination_date"))
+        )
+    )
+    assert invalid.height == 0
+
+
 def test_rostering_stays_within_department(labor: dict[str, pl.DataFrame]) -> None:
     cross_dept = (
         labor["assignments"]
@@ -118,6 +140,16 @@ def test_hourly_rate_is_positive(labor: dict[str, pl.DataFrame]) -> None:
 def test_hire_dates_are_within_window(labor: dict[str, pl.DataFrame]) -> None:
     # Fixture uses the default window, whose exclusive upper bound is 2025-01-01.
     assert labor["employees"].filter(pl.col("hire_date") >= date(2025, 1, 1)).height == 0
+
+
+def test_termination_is_after_hire_when_present(labor: dict[str, pl.DataFrame]) -> None:
+    terminated = labor["employees"].filter(pl.col("termination_date").is_not_null())
+    assert terminated.filter(pl.col("termination_date") <= pl.col("hire_date")).height == 0
+
+
+def test_termination_dates_stay_before_window_end(labor: dict[str, pl.DataFrame]) -> None:
+    # A leaver's date is kept strictly before the window's exclusive upper bound.
+    assert labor["employees"].filter(pl.col("termination_date") >= date(2025, 1, 1)).height == 0
 
 
 def test_standard_bill_rate_exceeds_cost(labor: dict[str, pl.DataFrame]) -> None:
@@ -198,6 +230,20 @@ def test_no_show_entries_are_never_billable(labor: dict[str, pl.DataFrame]) -> N
     assert entries.filter(pl.col("no_show") & pl.col("billable")).height == 0
 
 
+@pytest.mark.parametrize("column", ["approval_status", "submitted_late"])
+def test_timesheet_fields_are_set_exactly_for_worked_entries(
+    labor: dict[str, pl.DataFrame], column: str
+) -> None:
+    inconsistent = labor["time_entries"].filter(pl.col("no_show") != pl.col(column).is_null())
+    assert inconsistent.height == 0
+
+
+def test_approval_status_is_from_the_allowed_set(labor: dict[str, pl.DataFrame]) -> None:
+    worked = labor["time_entries"].filter(~pl.col("no_show"))
+    allowed = {"approved", "pending", "rejected"}
+    assert set(worked["approval_status"].unique().to_list()) <= allowed
+
+
 def test_project_budgets_are_positive(labor: dict[str, pl.DataFrame]) -> None:
     assert (
         labor["projects"]
@@ -223,6 +269,40 @@ def test_client_satisfaction_is_within_scale(labor: dict[str, pl.DataFrame]) -> 
         (pl.col("client_satisfaction") < 1) | (pl.col("client_satisfaction") > 5)
     )
     assert out_of_range.height == 0
+
+
+def test_manager_ids_reference_employees(labor: dict[str, pl.DataFrame]) -> None:
+    employees = labor["employees"]
+    emp_ids = set(employees["employee_id"].to_list())
+    managers = employees.filter(pl.col("manager_id").is_not_null())["manager_id"].to_list()
+    assert set(managers) <= emp_ids
+
+
+def test_no_employee_is_their_own_manager(labor: dict[str, pl.DataFrame]) -> None:
+    assert labor["employees"].filter(pl.col("manager_id") == pl.col("employee_id")).height == 0
+
+
+def test_manager_is_a_senior_colleague_in_same_department(
+    labor: dict[str, pl.DataFrame],
+) -> None:
+    rung = {role: i for i, role in enumerate(ROLES)}
+    employees = labor["employees"].with_columns(
+        pl.col("role").replace_strict(rung, return_dtype=pl.Int32).alias("rung")
+    )
+    joined = employees.join(
+        employees.select(
+            pl.col("employee_id").alias("manager_id"),
+            pl.col("department_id").alias("manager_department_id"),
+            pl.col("rung").alias("manager_rung"),
+        ),
+        on="manager_id",
+        how="inner",
+    )
+    misplaced = joined.filter(
+        (pl.col("department_id") != pl.col("manager_department_id"))
+        | (pl.col("manager_rung") <= pl.col("rung"))
+    )
+    assert misplaced.height == 0
 
 
 def test_scale_increases_employee_count() -> None:
@@ -271,6 +351,68 @@ def test_every_project_has_exactly_one_lead(labor: dict[str, pl.DataFrame]) -> N
 
 def test_allocation_pct_is_from_the_allowed_set(labor: dict[str, pl.DataFrame]) -> None:
     assert set(labor["project_members"]["allocation_pct"].unique().to_list()) <= {25, 50, 75, 100}
+
+
+def test_member_roll_on_is_within_project_window(labor: dict[str, pl.DataFrame]) -> None:
+    joined = labor["project_members"].join(
+        labor["projects"].select("project_id", "start_date", "target_end_date"), on="project_id"
+    )
+    out_of_window = joined.filter(
+        pl.col("rolled_on_date").is_null()
+        | (pl.col("rolled_on_date") < pl.col("start_date"))
+        | (pl.col("rolled_on_date") >= pl.col("target_end_date"))
+    )
+    assert out_of_window.height == 0
+
+
+def test_member_roll_off_is_set_when_completed_or_member_terminated(
+    labor: dict[str, pl.DataFrame],
+) -> None:
+    joined = (
+        labor["project_members"]
+        .join(labor["projects"].select("project_id", "status", "target_end_date"), on="project_id")
+        .join(labor["employees"].select("employee_id", "termination_date"), on="employee_id")
+    )
+    # rolled_off closes iff the project completed OR the member left the firm on/before
+    # the project's target end (they rolled off when they left, even on an open project).
+    should_close = (pl.col("status") == "completed") | (
+        pl.col("termination_date").is_not_null()
+        & (pl.col("termination_date") <= pl.col("target_end_date"))
+    )
+    inconsistent = joined.filter(should_close == pl.col("rolled_off_date").is_null())
+    assert inconsistent.height == 0
+
+
+def test_member_roll_off_falls_after_roll_on_and_within_window(
+    labor: dict[str, pl.DataFrame],
+) -> None:
+    joined = labor["project_members"].join(
+        labor["projects"].select("project_id", "target_end_date"), on="project_id"
+    )
+    present = joined.filter(pl.col("rolled_off_date").is_not_null())
+    out_of_band = present.filter(
+        (pl.col("rolled_off_date") <= pl.col("rolled_on_date"))
+        | (pl.col("rolled_off_date") > pl.col("target_end_date"))
+    )
+    assert out_of_band.height == 0
+
+
+def test_member_roll_dates_respect_employment(labor: dict[str, pl.DataFrame]) -> None:
+    # A member never rolls on before they were hired, and a member who left the firm
+    # never rolls off after their termination date.
+    joined = labor["project_members"].join(
+        labor["employees"].select("employee_id", "hire_date", "termination_date"),
+        on="employee_id",
+    )
+    invalid = joined.filter(
+        (pl.col("rolled_on_date") < pl.col("hire_date"))
+        | (
+            pl.col("termination_date").is_not_null()
+            & pl.col("rolled_off_date").is_not_null()
+            & (pl.col("rolled_off_date") > pl.col("termination_date"))
+        )
+    )
+    assert invalid.height == 0
 
 
 def test_project_lead_is_the_most_senior_member(labor: dict[str, pl.DataFrame]) -> None:

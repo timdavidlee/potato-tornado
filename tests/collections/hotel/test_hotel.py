@@ -280,6 +280,18 @@ def test_demand_forecast_has_one_row_per_property_per_day(hotel: dict) -> None:
     assert forecast.select("property_id", "forecast_date").n_unique() == forecast.height
 
 
+def test_check_ins_spread_evenly_across_the_three_year_window(hotel: dict) -> None:
+    # Arrivals span all three calendar years of the window with no YoY growth term, so each
+    # year carries ~1/3 of check-ins (observed 0.33 +/- 0.01); a clustered or single-year
+    # generator would fail this. The within-year summer season is a separate scenario.
+    by_year = (
+        hotel["reservations"]
+        .group_by(pl.col("check_in_date").dt.year().alias("yr"))
+        .agg((pl.len() / hotel["reservations"].height).alias("share"))
+    )
+    assert by_year["share"].min() > 0.28 and by_year.height == 3
+
+
 def test_stay_length_is_shorter_for_business_channels(hotel: dict) -> None:
     # nights is keyed to channel, not flat: business (corporate) stays run well below
     # leisure (ota). ota ~3.6 vs corporate ~2.6 nights; a flat draw would tie them.
@@ -376,6 +388,20 @@ def test_business_segment_concentrates_in_the_corporate_channel(hotel: dict) -> 
     )
     by_channel = dict(shares.iter_rows())
     assert by_channel["corporate"] > by_channel["ota"] * 2
+
+
+@pytest.mark.parametrize(
+    ("segment", "low", "high"),
+    [("leisure", 0.59, 0.67), ("business", 0.23, 0.31), ("group", 0.07, 0.13)],
+)
+def test_overall_market_segment_mix_holds(
+    hotel: dict, segment: str, low: float, high: float
+) -> None:
+    # Top-line mix emerges from the channel split x SEGMENT_BY_CHANNEL: overall it lands at
+    # leisure ~0.63 / business ~0.27 / group ~0.10, not the flat 1/3 a naive draw would give.
+    res = hotel["reservations"]
+    share = (res["market_segment"] == segment).mean()
+    assert low < share < high
 
 
 def test_guest_origin_is_mostly_but_not_only_domestic(hotel: dict) -> None:

@@ -53,6 +53,12 @@ update the matching line below in the same change.
   delivered`); +1 `in_transit` hop for zones ≥ 5 (and a second past zone 7); a non-delivered
   parcel ends in `exception` instead of `delivered` (returned reaches `out_for_delivery`
   first, lost does not) — so ≈ 3–6 rows/shipment.
+- **scan timestamps.** The first scan is on/after `ship_date` at ~08:00; intermediate scans
+  are spread monotonically toward the terminal scan. The terminal scan lands at a
+  per-shipment time-of-day drawn uniformly across **[12:00, 20:00)** (roughly flat by hour) —
+  not a single fixed clock time — and stays on the terminal calendar day, so
+  `actual_delivery_date` (the delivered scan's date) is unchanged. Within a shipment, times of
+  day are ~all distinct; a single degenerate terminal time is the lattice smell this guards.
 - **on-time rate.** Overall ≈ 86% of delivered parcels on time (`days_late ≤ 0`), declining
   from ≈ 0.96 at zone 1 to ≈ 0.75 at zone 8. On-time propensity blends carrier `reliability`
   (≈ 0.85–0.97) with a per-zone penalty. See `scenarios/on-time-degrades-with-zone.md`.
@@ -67,8 +73,9 @@ update the matching line below in the same change.
 
 - **One `deliveries` row per shipment** — no split shipments or multi-parcel orders.
 - **Scan `location_city` is a coarse city label** (from `ctx.entities.cities`), not a
-  facility code or lat/long; intermediate `in_transit` hub cities are synthetic and drawn per
-  scan, unrelated to real geography between origin and destination.
+  facility code or lat/long; the intermediate `in_transit` hub city is synthetic and drawn
+  once per shipment (so a multi-hop parcel repeats the same hub city on each `in_transit`
+  scan), unrelated to real geography between origin and destination.
 - **`dest_zone` is a per-shipment distance proxy**, drawn directly — not computed from the
   warehouse's and destination's cities. `dest_city` and `warehouses.city` are independent
   labels; zone is the only distance signal.

@@ -32,8 +32,8 @@ update the matching line below in the same change.
 ## Distributions & mixes (should look like the real world)
 
 - **Row counts (`scale=1.0`).** `brokers` = 40, `policyholders` = 4000, `policies` = 5000
-  (a holder may hold more than one), `claims` ≈ 670 (frequency-derived, ~12% of policies),
-  `claim_payments` ≈ 530 (~79% of claims — the settled share).
+  (a holder may hold more than one), `claims` ≈ 620 (frequency-derived, ~11% of policies),
+  `claim_payments` ≈ 490 (~79% of claims — the settled share).
 - **Risk-tier mix.** preferred 0.45 / standard 0.40 / high_risk 0.15.
 - **Product mix.** auto 0.50 / home 0.30 / renters 0.20.
 - **annual_premium.** Lognormal (σ ≈ 0.4) whose median is the product base × tier
@@ -42,17 +42,26 @@ update the matching line below in the same change.
 - **coverage_limit / deductible.** Coverage is the product base (auto \$60k / home \$300k /
   renters \$30k) × a per-policy step {0.5, 1.0, 2.0}; deductible ∈ {\$250, \$500, \$1,000}
   weighted 0.30 / 0.45 / 0.25, always `< coverage_limit`.
-- **Claim frequency (the "frequency" half).** Per-policy `Poisson(λ × term_years)`, λ by tier
-  = 0.09 / 0.18 / 0.42. Overall ≈ **12%** of policies file ≥1 claim; high-risk policies claim
-  ~4.7× as often as preferred. See `scenarios/frequency-severity.md`.
+- **Claim frequency (the "frequency" half).** Per-policy `Poisson(λ × exposed_years)`, λ by
+  tier = 0.09 / 0.18 / 0.42, where `exposed_years` is the policy term clipped to `end_date`.
+  Overall ≈ **11%** of policies file ≥1 claim; high-risk policies claim ~4.4× as often as
+  preferred. See `scenarios/frequency-severity.md`.
+- **Claim timing.** Because counts scale with each policy's *in-window* exposed span (not the
+  full contractual term), the observed annual claim rate equals λ and claim volume tracks the
+  in-force with **no pile-up at `end_date`** — claims-per-in-force is flat across the window
+  (the final 90 days hold no more claims than the preceding 90). The book fills from zero at
+  `start_date`, so total claim volume still *ramps* over the three years (≈ 130 → 310 per
+  calendar year at `scale=1.0`) purely from a growing in-force, not from rising per-policy
+  frequency — see the cold-start note under Deliberate simplifications.
 - **reported_amount (the "severity" half).** Lognormal median ≈ **\$6.4k**, σ ≈ 1.0 → p95 ≈
   \$30k, max past \$50k. Independent of tier, product, and peril (a deliberate simplification).
 - **Adjudication mix.** approved 0.62 / partial 0.16 / denied 0.14 / open 0.08 (measured ≈
   0.61 / 0.18 / 0.13 / 0.08). See `scenarios/adjudication-funnel-reported-vs-paid.md`.
 - **paid_amount.** approved = `clip(min(reported, coverage_limit) − deductible, 0, ∞)`;
-  partial = 0.3–0.8× that. Total paid ≈ 66% of total reported.
-- **Loss ratio (Σ paid ÷ Σ premium).** Overall ≈ **0.68**, rising **preferred ≈ 0.45 →
-  standard ≈ 0.76 → high_risk ≈ 0.85**. See `scenarios/loss-ratio-rises-with-risk-tier.md`.
+  partial = 0.3–0.8× that. Total paid ≈ 65% of total reported.
+- **Loss ratio (Σ paid ÷ Σ premium).** Overall ≈ **0.62**, rising **preferred ≈ 0.43 →
+  standard ≈ 0.67 → high_risk ≈ 0.79** (tier means; the standard/high_risk gap is narrow and
+  can invert on a given seed — see `scenarios/loss-ratio-rises-with-risk-tier.md`).
 - **peril mix.** Roughly uniform over the six perils — no product or geography coupling.
 
 ## Deliberate simplifications (intended — do not "fix")
@@ -73,6 +82,11 @@ update the matching line below in the same change.
 - **`broker_id` and `region` carry no signal** — brokers don't influence premium, claim
   frequency, or loss ratio; the broker dim exists for join practice, not a producer-performance
   scenario (a natural future addition).
+- **Cold-start book** — the in-force grows from zero at the window's `start_date` (no
+  backdated policies), so total claim volume ramps up ≈ 2.3× across the three years purely
+  because more policies are in force, not because per-policy frequency changes. Per-policy
+  frequency is flat over time (claims-per-in-force is constant); a YoY "claims are rising"
+  read is an exposure-growth artifact, not a deteriorating book.
 
 ## How to review
 
@@ -89,12 +103,18 @@ join claims c using (claim_id)
 join policies p using (policy_id)
 where pay.paid_amount > greatest(least(c.reported_amount, p.coverage_limit) - p.deductible, 0) + 0.01;
 
--- ~12% of policies claim; severity is heavy-tailed
-select count(distinct policy_id)::float / (select count(*) from policies) as claim_rate,  -- ≈ 0.12
+-- ~11% of policies claim; severity is heavy-tailed
+select count(distinct policy_id)::float / (select count(*) from policies) as claim_rate,  -- ≈ 0.11
        quantile_cont(reported_amount, 0.95) as sev_p95                                    -- ≈ 30000
 from claims;
 
--- loss ratio rises with tier (≈0.45 → ≈0.85)
+-- no claim pile-up at the window end: the last 90 days hold ≲ the prior 90 (expect ratio ≈ 1)
+select count(*) filter (where claim_date >= (select max(claim_date) from claims) - interval 90 day)::float
+     / nullif(count(*) filter (where claim_date >= (select max(claim_date) from claims) - interval 180 day
+                                 and claim_date <  (select max(claim_date) from claims) - interval 90 day), 0) as tail_ratio
+from claims;
+
+-- loss ratio rises with tier (≈0.43 → ≈0.79; standard↔high_risk gap is narrow)
 select ph.risk_tier,
        sum(pay.paid_amount) / (select sum(p2.annual_premium) from policies p2
                                join policyholders ph2 using (policyholder_id)

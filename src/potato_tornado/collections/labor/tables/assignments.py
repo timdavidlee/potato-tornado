@@ -18,16 +18,33 @@ def build_assignments(ctx: GenContext) -> pl.DataFrame:
     ):
         emp_by_dept.setdefault(dept, []).append(emp_id)
 
+    # Employment window per employee, so a shift only rosters staff employed that day
+    # (hired on/before it, not yet terminated) — nobody works before hire or after leaving.
+    emp_hire = dict(
+        zip(employees["employee_id"].to_list(), employees["hire_date"].to_list(), strict=True)
+    )
+    emp_term = dict(
+        zip(
+            employees["employee_id"].to_list(), employees["termination_date"].to_list(), strict=True
+        )
+    )
+
     rng = ctx.rng.numpy
     rows_shift: list[str] = []
     rows_emp: list[str] = []
-    for shift_id, dept, required in zip(
+    for shift_id, dept, required, planned_start in zip(
         shifts["shift_id"].to_list(),
         shifts["department_id"].to_list(),
         shifts["required_headcount"].to_list(),
+        shifts["planned_start"].to_list(),
         strict=True,
     ):
-        pool = emp_by_dept.get(dept, [])
+        shift_day = planned_start.date()
+        pool = [
+            e
+            for e in emp_by_dept.get(dept, [])
+            if emp_hire[e] <= shift_day and (emp_term[e] is None or shift_day < emp_term[e])
+        ]
         if not pool:
             continue
         # Roster roughly the required headcount, occasionally over/understaffed.

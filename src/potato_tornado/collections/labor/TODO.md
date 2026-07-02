@@ -40,13 +40,28 @@ Labor gate is green (ruff / pyright / pytest); generation stays byte-determinist
   from staffing, slip not practice-concentrated, CSAT independent of budget/overrun; the two
   outcome fields are populated iff `status = 'completed'`.
 
-**Still open (flat realism, unstarted):** item 9 `time_entries.approval_status` /
-`submitted_late`; later items 11 `project_members.rolled_on_date` / `rolled_off_date` and 12
-`employees.manager_id`.
+**Still open (flat realism, unstarted):** none — all flat-realism items are done. Item 10
+`employees.termination_date` is now done too: the rostering-validity decision below was
+resolved in favour of **enforcing validity** (option a) — `assignments` and `project_members`
+exclude an employee outside their `[hire_date, termination_date)` tenure, and membership roll
+dates are bounded by it (a member who leaves mid-project rolls off on their termination date).
+
+- **Timesheet-compliance batch:** item 9 `time_entries.approval_status` / `submitted_late` —
+  flat org-wide rates on their own `timesheet` child stream, both populated iff the entry was
+  worked (null on no-show, mirroring the null-clock rule); no compliance-by-slice signal
+  planted.
+- **Staffing timeline:** item 11 `project_members.rolled_on_date` / `rolled_off_date` — each a
+  right-skewed offset (join near kickoff, leave near the end) on their own `roll_dates` child
+  stream, bounded to `[start_date, target_end_date]`; `rolled_off_date` populated iff the
+  project is `completed` (mirrors `actual_end_date`). Turns `allocation_pct` into a capacity
+  timeline, so over-allocation is now *detectable* by date overlap but is not planted — the
+  concurrency simplification is reconciled accordingly.
+- **Org hierarchy:** item 12 `employees.manager_id` — self-referential FK on a `manager` child
+  stream; a uniform pick among strictly-more-senior same-department colleagues, null for the
+  top of each department (~8–9%). Flat realism (no span-of-control signal); reporting never
+  crosses departments and is independent of project staffing.
 
 **Carry caveats before doing:**
-- **Item 10 `employees.termination_date`** overturns the "no terminations or leave"
-  simplification — needs a rostering-validity decision first (see the item's ⚠ note).
 - **`project_members.bill_rate` nullability:** it's currently populated for *every* member even
   though `is_billable` now exists — revisit whether non-billable members should get a null
   `bill_rate` when convenient.
@@ -55,7 +70,10 @@ Labor gate is green (ruff / pyright / pytest); generation stays byte-determinist
 `/scenario:draft-or-propose labor`): fixed-fee/ industry realization dip (item 2), non-billable
 concentration as a *taught* surprise (item 3), billable-share dip by slice (item 5), fixed-fee
 budget overruns (item 6), Software Engineering schedule slip (item 7), CSAT dip for
-overrun/thin-staffed projects (item 8), and margin-by-practice markup compression (item 1).
+overrun/thin-staffed projects (item 8), margin-by-practice markup compression (item 1),
+over-allocation concentrated in a slice (members double-booked past 100% via overlapping
+roll-on/off windows, item 11), and attrition concentrated in a slice (a high-turnover practice
+or juniors churning faster, item 10).
 
 ## Quick wins (realism enrichment)
 
@@ -195,39 +213,39 @@ overrun/thin-staffed projects (item 8), and margin-by-practice markup compressio
   `/scenario:draft-or-propose` and name the low-CSAT slice; keep the base draw flat if you only
   want the realism dimension. (Depends on nothing, but pairs naturally with items 6–7.)
 
-### 9. `time_entries.approval_status` / `submitted_late`
-- [ ] Timesheet-compliance fields on worked entries: `approval_status` (`Utf8`,
-  `{approved, pending, rejected}`, ~0.9 / 0.07 / 0.03) and `submitted_late` (`Boolean`) — both
-  `False`/NA on no-show rows to respect the null-clock invariant. Draw sketch: `ctx.dist.choice`
-  / `ctx.dist.bernoulli` on a `ctx.rng.child("timesheet")` stream, sized `n = joined.height`
-  alongside the existing `attendance`/`overtime` child streams so existing draws don't shift.
+### 9. `time_entries.approval_status` / `submitted_late` — done (flat)
+- [x] Timesheet-compliance fields on worked entries: `approval_status` (`Utf8`,
+  `{approved, pending, rejected}`, 0.90 / 0.07 / 0.03) and `submitted_late` (`Boolean`,
+  ~0.12) — both **null** on no-show rows (there is no timesheet to submit or approve), so each
+  is populated iff `no_show = false` (mirrors the null-clock rule; cleaner than a `False`
+  sentinel). Drawn on a `ctx.rng.child("timesheet")` stream sized `n = joined.height`, after
+  the existing `attendance`/`overtime`/`billable` child streams so those draws don't shift.
 - **Unlocks:** timesheet-hygiene / revenue-leakage analysis — unapproved or late-submitted
   hours can't be billed; compliance rates by practice or shift window.
 - **Class:** realism enrichment for the flat rates; **scenario-bearing** if late/rejected
   timesheets concentrate in a practice or the night window (an ops-discipline echo of the
   no-show-by-window signal). Route the concentration to `/scenario:draft-or-propose`.
 
-### 10. `employees.termination_date`
-- [ ] The date an employee left the firm, **null for active staff** (`Date`). Draw sketch: a
-  `ctx.dist.bernoulli` attrition flag (~15–20% ever-left) on a `ctx.rng.child("attrition")`
-  stream, then `hire_date + ctx.dist.integers(tenure_days)` bounded at `end_date`; null
-  otherwise.
+### 10. `employees.termination_date` — done (flat; rostering-validity enforced)
+- [x] The date an employee left the firm, **null for active staff** (`Date`). An ~18% attrition
+  flag on a `ctx.rng.child("attrition")` stream, then a tenure offset ≥90 days after
+  `hire_date`, kept strictly before `end_date`; null otherwise.
 - **Unlocks:** attrition / retention analysis — turnover rate by practice, role, tenure, and
   location; headcount-over-time.
-- **Class:** **scenario-bearing** → attrition concentrates in a slice (a high-turnover practice,
-  or juniors churning faster). Route to `/scenario:draft-or-propose` with the segment named.
-- **⚠ Overturns a deliberate simplification.** `realism-guidance.md` currently states "No
-  terminations or leave: every employee is active across the whole window." Adding this field
-  means either (a) keeping rostering/membership valid across a partial tenure (a terminated
-  employee shouldn't be staffed after `termination_date` — a real modelling change), or (b)
-  documenting that the timekeeping/staffing tables ignore termination as a *new* deliberate
-  simplification. Decide and reconcile the rubric bullet in the same change; don't leave it
-  contradictory. This makes it heavier than the other items.
+- **Class:** realism enrichment (flat attrition). **Scenario-bearing variant:** attrition
+  concentrates in a slice (a high-turnover practice, or juniors churning faster) → route to
+  `/scenario:draft-or-propose` with the segment named. Not planted here.
+- **✔ Resolved the ⚠ decision by enforcing validity (option a).** `assignments` rosters an
+  employee onto a shift only within `[hire_date, termination_date)`, and `project_members`
+  staffs only employees whose tenure overlaps the project window, with roll-on ≥ `hire_date`
+  and a mid-project leaver rolling off on their `termination_date` (so `rolled_off_date` can be
+  non-null even on an open project). The rubric's "No terminations or leave" simplification and
+  the roll-date invariants were reconciled in the same change; PTO/other leave stays unmodelled.
 
 ## Later / depends-on
 
-### 11. `project_members.rolled_on_date` / `rolled_off_date`
-- [ ] When the member joined and left the project, within `[projects.start_date,
+### 11. `project_members.rolled_on_date` / `rolled_off_date` — done (flat)
+- [x] When the member joined and left the project, within `[projects.start_date,
   target_end_date]` (`Date`; `rolled_off` nullable while active). Draw sketch: per-membership
   offsets via `ctx.dist` on a `project_members` child stream, ordered so `rolled_off >
   rolled_on`. Depends on nothing new but pairs with item 6.
@@ -239,11 +257,11 @@ overrun/thin-staffed projects (item 8), and margin-by-practice markup compressio
   over-allocation *signal* (members double-booked past 100% in a slice) would then be
   scenario-bearing on top of it.
 
-### 12. `employees.manager_id`
-- [ ] Self-referential FK to a more-senior employee in the same department (`Utf8`, nullable
+### 12. `employees.manager_id` — done (flat)
+- [x] Self-referential FK to a more-senior employee in the same department (`Utf8`, nullable
   for the top of each practice). Draw sketch: within each department, pick a manager for each
   employee from the higher-`role`-rung members via `ctx.rng.child("manager")`; leave the most
-  senior without one.
+  senior without one. (~8–9% managerless — the top rung of each department.)
 - **Unlocks:** org hierarchy / span-of-control analysis, and "who staffs whom" roll-ups.
 - **Class:** realism enrichment (an org-tree dimension). Not scenario-bearing on its own.
 

@@ -131,3 +131,34 @@ def test_bounds_hold(logistics: dict[str, pl.DataFrame]) -> None:
         and cast(int, deliveries["attempts"].max()) <= 3
     )
     assert ok
+
+
+def _terminal_scans(scans: pl.DataFrame) -> pl.DataFrame:
+    """The last (max-``seq``) scan of every shipment — the delivery/exception row."""
+    return scans.join(
+        scans.group_by("shipment_id").agg(pl.col("seq").max().alias("_mx")), on="shipment_id"
+    ).filter(pl.col("seq") == pl.col("_mx"))
+
+
+def test_terminal_scans_land_in_the_delivery_window(logistics: dict[str, pl.DataFrame]) -> None:
+    terminal = _terminal_scans(logistics["scan_events"])
+    outside = terminal.filter(
+        (pl.col("scan_ts").dt.hour() < 12) | (pl.col("scan_ts").dt.hour() >= 20)
+    )
+    assert outside.height == 0
+
+
+def test_terminal_scan_times_are_not_a_single_clock_time(
+    logistics: dict[str, pl.DataFrame],
+) -> None:
+    # Guards against the timestamp lattice where every terminal scan was pinned to
+    # exactly 18:00:00; the delivery window should yield many distinct times of day.
+    terminal = _terminal_scans(logistics["scan_events"])
+    seconds_of_day = terminal.select(
+        (
+            pl.col("scan_ts").dt.hour().cast(pl.Int64) * 3600
+            + pl.col("scan_ts").dt.minute().cast(pl.Int64) * 60
+            + pl.col("scan_ts").dt.second().cast(pl.Int64)
+        ).alias("s")
+    )["s"]
+    assert seconds_of_day.n_unique() > 100
