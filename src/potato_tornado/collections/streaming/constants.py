@@ -26,8 +26,12 @@ TITLE_KINDS = ["series", "film"]
 TITLE_KIND_WEIGHTS = [0.6, 0.4]
 
 # One-off premium-rental price points (PVOD): a cheap catalogue rental, a standard
-# new-release rental, and a premium day-and-date release.
+# new-release rental, and a premium day-and-date release. `weight` is that price
+# point's share of rentals — the two cheaper tiers carry most volume while the
+# $19.99 day-and-date release stays rare, so the mix is skewed, not uniform.
+# (price, weight), same order the generator indexes.
 PREMIUM_RENTAL_PRICES = [4.99, 6.99, 19.99]
+PREMIUM_RENTAL_PRICE_WEIGHTS = [0.42, 0.45, 0.13]
 
 # (region, display_name, subscriber_weight, catalog_density) — the markets the
 # service operates in. `subscriber_weight` is that market's share of the

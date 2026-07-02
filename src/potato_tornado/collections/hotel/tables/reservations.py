@@ -32,10 +32,23 @@ _UPPER_TIERS = ("Suite", "Penthouse")
 _PEAK_DOY = 196  # ~15 July
 _SEASON_AMP = 0.23  # → peak:trough ≈ 1.6:1
 
+# Stay length and party size vary by segment rather than sitting flat across the whole
+# table. Business channels (corporate / walk_in) book shorter stays than the leisure-heavy
+# ota / direct guests; larger room classes draw larger parties. Both are Poisson(λ)+1 with
+# λ keyed to the segment, drawn from their own child streams so they don't shift other
+# columns' draws.
+_NIGHTS_LAMBDA_BY_CHANNEL = {"direct": 2.3, "ota": 2.6, "corporate": 1.6, "walk_in": 1.6}
+_PARTY_LAMBDA_BY_TYPE = {"Standard": 1.1, "Deluxe": 1.3, "Suite": 1.7, "Penthouse": 1.9}
+
 
 def build_reservations(ctx: GenContext) -> pl.DataFrame:
     n = ctx.n(24000)
-    props = ctx.table("properties")["property_id"].to_list()
+    props_df = ctx.table("properties")
+    props = props_df["property_id"].to_list()
+    # Booking volume scales with hotel size: a 210-room property draws far more
+    # reservations than a 60-room one, so occupancy tracks capacity instead of sitting
+    # flat across properties of wildly different sizes.
+    prop_weights = props_df["total_rooms"].to_list()
     type_names = [t[0] for t in ROOM_TYPES]
     type_weights = [t[2] for t in ROOM_TYPES]
 
@@ -49,7 +62,10 @@ def build_reservations(ctx: GenContext) -> pl.DataFrame:
         ctx.rng.child("arrival"), n, ctx.config.start_date, ctx.config.end_date
     )
     lead_days = _sample_lead_days(ctx, channel)
-    nights = np.clip(ctx.dist.poisson(n, 2.2) + 1, 1, 21)
+    nights_lam = np.array([_NIGHTS_LAMBDA_BY_CHANNEL[c] for c in channel])
+    nights = np.clip(ctx.rng.child("nights").numpy.poisson(nights_lam) + 1, 1, 21)
+    party_lam = np.array([_PARTY_LAMBDA_BY_TYPE[t] for t in room_type])
+    party_size = np.clip(ctx.rng.child("party").numpy.poisson(party_lam) + 1, 1, 6)
     booked = np.array(
         [ci - timedelta(days=int(lead)) for ci, lead in zip(check_in, lead_days, strict=True)],
         dtype=object,
@@ -62,14 +78,14 @@ def build_reservations(ctx: GenContext) -> pl.DataFrame:
     return pl.DataFrame(
         {
             "reservation_id": [f"RES-{i:07d}" for i in range(1, n + 1)],
-            "property_id": ctx.dist.choice(n, props),
+            "property_id": ctx.dist.choice(n, props, prop_weights),
             "guest_name": ctx.entities.people(n)["full_name"],
             "channel": channel,
             "room_type": room_type,
             "booked_date": booked,
             "check_in_date": check_in,
             "check_out_date": check_out,
-            "party_size": np.clip(ctx.dist.poisson(n, 1.3) + 1, 1, 6),
+            "party_size": party_size,
             "nights": nights,
             "status": status,
         }

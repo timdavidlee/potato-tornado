@@ -53,6 +53,9 @@ update the matching line below in the same change.
 - **Catalogue density by region.** Per-title licensing probability: US 0.85 / GB 0.60 /
   DE 0.55 / BR 0.50 / IN 0.45 / JP 0.30 — so catalogue size runs US (~85%+ of titles) down
   to JP (~30%). See `scenarios/catalog-size-varies-by-region.md`.
+- **Rental price mix.** The PVOD ladder is skewed, not uniform: 4.99 ≈0.42 / 6.99 ≈0.45
+  (modal) / 19.99 ≈0.13 — the two cheaper tiers carry the volume and the day-and-date premium
+  release stays rare.
 
 ## Deliberate simplifications (intentional — do not "fix")
 
@@ -73,3 +76,11 @@ update the matching line below in the same change.
 - **Rentals are independent of tenure.** A subscriber can rent on any date in the window,
   regardless of whether their subscription was active then. Tightening rentals to fall
   within an active subscription window is a candidate future invariant.
+- **Rentals spread uniformly across subscribers.** The renter of each rental is drawn
+  uniformly, so there is no "heavy renter" concentration (rentals/subscriber ≈ Poisson-ish,
+  max a handful). Concentrating rentals in a whale minority is a candidate future scenario,
+  not a realism fix.
+- **Genre is near-uniform across titles.** Each title is a random figure dropped into a
+  random *off-genre* show, so the eight show genres come out roughly even (each ≈0.09–0.17)
+  rather than following a real catalogue's skew. The uniform draw is a by-product of the
+  parody device, not a distribution to "fix".

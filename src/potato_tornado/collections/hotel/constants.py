@@ -37,19 +37,21 @@ ROOM_TYPES = [
     ("Penthouse", 480.0, 0.05),
 ]
 
-# (service, unit_price) — the ancillary "service-book" menu billed per stay via
-# service_orders. A mix of discretionary spend (Dining, Spa, Room Service) and the
-# recurring stay fees a guest gets charged (Internet, Television, Parking).
+# (service, unit_price, popularity_weight) — the ancillary "service-book" menu billed per
+# stay via service_orders. A mix of discretionary spend (Dining, Spa, Room Service) and the
+# recurring stay fees a guest gets charged (Internet, Television, Parking). Demand is not
+# uniform across the menu: breakfast / internet / parking are everyday buys, spa / laundry
+# are occasional. Weights sum to 1.0.
 SERVICES = [
-    ("Breakfast", 18.0),
-    ("Spa", 75.0),
-    ("Dining", 55.0),
-    ("Room Service", 32.0),
-    ("Parking", 22.0),
-    ("Internet", 12.0),
-    ("Television", 9.0),
-    ("Minibar", 14.0),
-    ("Laundry", 20.0),
+    ("Breakfast", 18.0, 0.20),
+    ("Spa", 75.0, 0.04),
+    ("Dining", 55.0, 0.11),
+    ("Room Service", 32.0, 0.12),
+    ("Parking", 22.0, 0.14),
+    ("Internet", 12.0, 0.16),
+    ("Television", 9.0, 0.08),
+    ("Minibar", 14.0, 0.10),
+    ("Laundry", 20.0, 0.05),
 ]
 
 RES_STATUS = ["honoured", "cancelled", "no_show"]

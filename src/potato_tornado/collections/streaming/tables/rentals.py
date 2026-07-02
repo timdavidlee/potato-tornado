@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import polars as pl
 
-from potato_tornado.collections.streaming.constants import PREMIUM_RENTAL_PRICES
+from potato_tornado.collections.streaming.constants import (
+    PREMIUM_RENTAL_PRICE_WEIGHTS,
+    PREMIUM_RENTAL_PRICES,
+)
 from potato_tornado.core.collection import GenContext
 
 # Wide co-prime modulus for the "pick one of a short candidate list" roll.
@@ -42,7 +45,12 @@ def build_rentals(ctx: GenContext) -> pl.DataFrame:
 
     sub_idx = ctx.dist.integers(n, 0, num_subs - 1)
     title_roll = ctx.dist.integers(n, 0, _ROLL_MAX)
-    price_idx = ctx.dist.integers(n, 0, len(PREMIUM_RENTAL_PRICES) - 1)
+    # Price is a weighted draw over the PVOD ladder (cheap/standard dominate, the
+    # $19.99 day-and-date release is rare) — a named child so it doesn't reorder
+    # the draws above.
+    price_idx = ctx.rng.child("price").numpy.choice(
+        len(PREMIUM_RENTAL_PRICES), size=n, p=PREMIUM_RENTAL_PRICE_WEIGHTS
+    )
     rented = ctx.dist.dates_between(n, ctx.config.start_date, ctx.config.end_date)
 
     out_sub: list[str] = []

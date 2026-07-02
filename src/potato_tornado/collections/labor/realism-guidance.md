@@ -60,6 +60,15 @@ update the matching line below in the same change.
 - Employees are rostered only in their home department (no cross-department coverage).
 - No terminations or leave: every employee is active across the whole window, pay is static
   (no raises with tenure), and there are no PTO/holiday/overnight premiums.
+- **Overtime is a non-negative clamped draw, so ~39% of worked shifts log *exactly* their
+  planned hours** — `worked_hours` has a visible spike on {8, 10, 12} with a right tail. This
+  "most shifts fine, a few blow out" spike-at-zero is the intended shape (see
+  `scenarios/overtime-right-skew.md`), not a lattice artifact to smooth away.
+- `employment_type` (full_time / part_time / contractor) is drawn independently of role and
+  department, so seniority does not skew toward full-time the way it would in a real org.
+- `required_headcount` is uniform on [2, 8], and shifts are spread uniformly across
+  departments, calendar days, and weekday/weekend — there is no scheduling seasonality and
+  no department-size differences.
 
 ## How to review
 
