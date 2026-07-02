@@ -76,6 +76,15 @@ def test_order_date_on_or_after_signup(retail: dict[str, pl.DataFrame]) -> None:
     assert dated.filter(pl.col("order_date") < pl.col("signup_date")).height == 0
 
 
+def test_order_date_within_run_window(retail: dict[str, pl.DataFrame]) -> None:
+    config = GenerationConfig(seed=13, scale=0.3)
+    orders = retail["orders"]
+    out_of_window = orders.filter(
+        (pl.col("order_date") < config.start_date) | (pl.col("order_date") >= config.end_date)
+    )
+    assert out_of_window.height == 0
+
+
 def test_bounds_hold(retail: dict[str, pl.DataFrame]) -> None:
     items = retail["order_items"]
     ok = (
@@ -84,3 +93,55 @@ def test_bounds_hold(retail: dict[str, pl.DataFrame]) -> None:
         and retail["returns"].filter(pl.col("refund_amount") <= 0).height == 0
     )
     assert ok
+
+
+def test_weight_kg_within_bounds(retail: dict[str, pl.DataFrame]) -> None:
+    products = retail["products"]
+    assert products.filter((pl.col("weight_kg") < 0.05) | (pl.col("weight_kg") > 30)).height == 0
+
+
+@pytest.mark.parametrize(
+    ("table", "column", "allowed"),
+    [
+        ("orders", "payment_method", {"card", "paypal", "gift_card", "bnpl"}),
+        (
+            "customers",
+            "acquisition_channel",
+            {"organic", "paid_search", "social", "referral", "email"},
+        ),
+        ("returns", "refund_method", {"original_payment", "store_credit", "exchange"}),
+    ],
+)
+def test_categorical_fields_stay_in_catalog(
+    retail: dict[str, pl.DataFrame], table: str, column: str, allowed: set[str]
+) -> None:
+    assert set(retail[table][column].to_list()) <= allowed
+
+
+def test_brand_matches_product_category(retail: dict[str, pl.DataFrame]) -> None:
+    from potato_tornado.collections.retail.tables.products import _BRANDS
+
+    products = retail["products"]
+    off_catalog = [
+        (cat, brand)
+        for cat, brand in zip(
+            products["category"].to_list(), products["brand"].to_list(), strict=True
+        )
+        if brand not in _BRANDS[cat]
+    ]
+    assert off_catalog == []
+
+
+def test_product_names_are_mostly_distinct(retail: dict[str, pl.DataFrame]) -> None:
+    # The adjective/qualifier/noun triple keeps duplicate names rare (≈0.95 at this
+    # seed); guard against a regression back to the narrow adjective+noun lattice.
+    products = retail["products"]
+    assert products["product_name"].n_unique() / products.height > 0.85
+
+
+def test_order_volume_peaks_in_q4(retail: dict[str, pl.DataFrame]) -> None:
+    # Seasonal weighting concentrates orders into Nov/Dec (~0.32 share at this seed),
+    # well above the 2/12 ≈ 0.167 a flat calendar would give.
+    orders = retail["orders"].with_columns(pl.col("order_date").dt.month().alias("month"))
+    q4_share = orders.filter(pl.col("month").is_in([11, 12])).height / orders.height
+    assert q4_share > 0.25

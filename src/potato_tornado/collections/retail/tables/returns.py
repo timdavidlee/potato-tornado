@@ -4,7 +4,8 @@ A line is returned with a **category-dependent** propensity (apparel comes back 
 more than consumables), at most once. The return's ``reason`` mix is also
 category-specific — apparel skews to fit/mind-change, electronics to defects. The
 refund is the whole line total (usually) or a restocking-fee partial, and never
-exceeds the line total.
+exceeds the line total; ``refund_method`` records how it was issued (original
+payment / store credit / exchange), drawn independently of reason.
 """
 
 from __future__ import annotations
@@ -36,6 +37,9 @@ _RESTOCK_P = {
 _FULL_REFUND_P = 0.90
 _PARTIAL_LOW = 0.60
 _PARTIAL_HIGH = 0.90
+# How the refund is issued (single-table literal), drawn independently of reason.
+_REFUND_METHODS = ["original_payment", "store_credit", "exchange"]
+_REFUND_METHOD_WEIGHTS = [0.70, 0.22, 0.08]
 _RETURN_MIN_DAYS = 5
 _RETURN_MAX_DAYS = 30
 
@@ -72,6 +76,10 @@ def build_returns(ctx: GenContext) -> pl.DataFrame:
     restock_p = np.array([_RESTOCK_P[r] for r in reason])
     restocked = ctx.rng.child("restock").numpy.random(k) < restock_p
 
+    refund_method = ctx.rng.child("refund_method").numpy.choice(
+        np.array(_REFUND_METHODS, dtype=object), size=k, p=_REFUND_METHOD_WEIGHTS
+    )
+
     order_dates = sub["order_date"].to_list()
     delay = ctx.rng.child("return_delay").numpy.integers(_RETURN_MIN_DAYS, _RETURN_MAX_DAYS + 1, k)
     end = ctx.config.end_date
@@ -88,6 +96,7 @@ def build_returns(ctx: GenContext) -> pl.DataFrame:
             "return_date": return_date,
             "reason": reason,
             "refund_amount": refund_amount,
+            "refund_method": refund_method,
             "restocked": restocked,
         }
     )

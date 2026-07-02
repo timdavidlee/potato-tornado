@@ -21,6 +21,16 @@ _CHANNEL_WEIGHTS = [0.50, 0.40, 0.10]
 _STATUSES = ["delivered", "shipped", "cancelled"]
 _STATUS_WEIGHTS = [0.90, 0.05, 0.05]
 _BASKET_LAMBDA = 1.5
+# Tender mix (single-table literal), drawn independently of basket value.
+_PAYMENT_METHODS = ["card", "paypal", "gift_card", "bnpl"]
+_PAYMENT_WEIGHTS = [0.55, 0.22, 0.08, 0.15]
+# Multiplicative order-volume weight by calendar month: a repeating within-year
+# retail cycle — a Q4 holiday peak (Nov/Dec) and a post-holiday winter trough
+# (Feb), ~1.9x peak-to-trough. Expected seasonality, not a subset signal.
+_MONTH_SEASONALITY = {
+    1: 0.85, 2: 0.80, 3: 0.90, 4: 0.90, 5: 0.95, 6: 0.95,
+    7: 0.95, 8: 1.05, 9: 1.00, 10: 1.10, 11: 1.40, 12: 1.55,
+}  # fmt: skip
 
 
 def build_orders(ctx: GenContext) -> pl.DataFrame:
@@ -34,12 +44,25 @@ def build_orders(ctx: GenContext) -> pl.DataFrame:
 
     start = ctx.config.start_date
     end = ctx.config.end_date
-    # Order date is uniform in [max(start, signup), end): never before the window and
-    # never before the customer signed up.
-    base = [max(start, signup_of[c]) for c in customer_id]
-    span = np.array([(end - b).days for b in base])
-    offset = ctx.rng.child("order_date").numpy.integers(0, np.maximum(span, 1))
-    order_date = [b + timedelta(days=int(o)) for b, o in zip(base, offset, strict=True)]
+    total_span = (end - start).days
+    # Seasonal order dates: sample each day in [max(start, signup), end) in
+    # proportion to its month's seasonality weight (inverse-CDF over the window's
+    # per-day cumulative weight). Never before the window and never before the
+    # customer signed up, but with a repeating Q4 peak rather than a flat spread.
+    day_weight = np.array(
+        [_MONTH_SEASONALITY[(start + timedelta(days=d)).month] for d in range(total_span)]
+    )
+    cum = np.concatenate([[0.0], np.cumsum(day_weight)])  # length total_span + 1
+    lo_idx = np.clip(
+        np.array([(max(start, signup_of[c]) - start).days for c in customer_id]),
+        0,
+        total_span - 1,
+    )
+    target = cum[lo_idx] + ctx.rng.child("order_date").numpy.random(n) * (
+        cum[total_span] - cum[lo_idx]
+    )
+    day_idx = np.clip(np.searchsorted(cum, target, side="right") - 1, lo_idx, total_span - 1)
+    order_date = [start + timedelta(days=int(d)) for d in day_idx]
 
     item_count = 1 + ctx.rng.child("basket").numpy.poisson(_BASKET_LAMBDA, n)
 
@@ -50,6 +73,9 @@ def build_orders(ctx: GenContext) -> pl.DataFrame:
             "order_date": order_date,
             "channel": ctx.dist.choice(n, _CHANNELS, _CHANNEL_WEIGHTS),
             "status": ctx.dist.choice(n, _STATUSES, _STATUS_WEIGHTS),
+            "payment_method": ctx.rng.child("payment").numpy.choice(
+                np.array(_PAYMENT_METHODS, dtype=object), size=n, p=_PAYMENT_WEIGHTS
+            ),
             "item_count": item_count,
         }
     )
