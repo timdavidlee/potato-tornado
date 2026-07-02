@@ -119,5 +119,5 @@ four, its tables and build order, the headline distributions/scenarios, any new 
 it would need, and the doc path. If you only *proposed a menu* (empty/vague `$ARGUMENTS`)
 and wrote nothing, list the candidate domains and ask which to write up. Then note that the
 next step is to implement it per collections/CLAUDE.md — writing the `tables/` generators,
-`scenarios/*.md`, `realism-guidance.md`, registration, and tests — and firm up the target
-magnitudes once the data is generated.
+`scenarios/*.md`, `realism-guidance.md`, seeding `realism-log.md` + `TODO.md`, registration,
+and tests — and firm up the target magnitudes once the data is generated.

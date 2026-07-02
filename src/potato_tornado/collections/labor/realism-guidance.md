@@ -34,9 +34,11 @@ update the matching line below in the same change.
   both are positive.
 - **Weekly capacity is a fixed function of employment type.** `weekly_capacity_hours ∈
   {20, 40}` — 20 for `part_time`, 40 for `full_time` / `contractor`. No jitter.
-- **Project bill rate is a realized discount.** `project_members.bill_rate > 0` and lies in
-  `[0.6, 1.0] ×` the member's `employees.standard_bill_rate` — a member is never billed above
-  their standard list rate.
+- **Project bill rate is a realized discount, set only for billable members.**
+  `project_members.bill_rate` is populated **iff** the member's `employees.is_billable` is true
+  — non-billable (bench / overhead) members carry a `null` bill rate (there is no client rate
+  for them). When present, it is `> 0` and lies in `[0.6, 1.0] ×` the member's
+  `employees.standard_bill_rate` — a member is never billed above their standard list rate.
 - **Project catalogs.** `projects.client_name` is an entity company name;
   `projects.industry ∈ INDUSTRIES`, `projects.billing_type ∈ BILLING_TYPES`,
   `projects.priority ∈ PROJECT_PRIORITIES` are all from their fixed catalogs.
@@ -113,10 +115,11 @@ update the matching line below in the same change.
   by role from ~2.6× (Associate) to ~3.0× (Manager), jitter ±5% clamped to [0.9, 1.1]. Gross
   margin (`standard_bill_rate − hourly_rate`) is therefore always positive and widens up the
   ladder. Markup is flat *by role only* — no per-practice compression (a future scenario).
-- **Realization.** `project_members.bill_rate = standard_bill_rate × realization`, realization
-  ~Normal(0.85, 0.06) clamped to [0.6, 1.0] — mean ≈ 0.85, i.e. members bill at ~85% of list.
-  Flat across billing types and clients (the depressed-realization-by-billing-type surprise is
-  a future scenario, not planted here).
+- **Realization.** For billable members, `project_members.bill_rate = standard_bill_rate ×
+  realization`, realization ~Normal(0.85, 0.06) clamped to [0.6, 1.0] — mean ≈ 0.85, i.e.
+  members bill at ~85% of list. Non-billable members (~25% of the workforce) carry a null
+  bill_rate. Flat across billing types and clients (the depressed-realization-by-billing-type
+  surprise is a future scenario, not planted here).
 - **Capacity mix.** `weekly_capacity_hours` follows the employment mix: ~30% part_time at 20h,
   the rest at 40h — the utilization denominator.
 - **Consulting dimensions.** `industry` mix Financial Services 0.22 / Technology 0.18 /
@@ -257,9 +260,10 @@ update the matching line below in the same change.
   (no per-practice compression) and `bill_rate` realization is a uniform ~0.85 discount
   independent of `billing_type`, `industry`, or client — so margin-by-practice and
   realization-by-billing-type look flat by design. These are the natural shortlist for future
-  scenarios; today they are realism dimensions only. There is no project budget/burn, no
-  billable/non-billable split, and no link from `time_entries` to a project, so `bill_rate ×
-  hours` revenue can be *approximated* but not reconciled against actual delivery time.
+  scenarios; today they are realism dimensions only. Non-billable members do carry a null
+  `bill_rate` (the billable/non-billable split is honoured), but there is still no per-project
+  budget/burn and no link from `time_entries` to a project, so `bill_rate × hours` revenue can
+  be *approximated* but not reconciled against actual delivery time.
 
 ## How to review
 

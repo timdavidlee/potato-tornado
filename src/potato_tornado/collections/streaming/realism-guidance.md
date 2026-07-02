@@ -43,6 +43,10 @@ update the matching line below in the same change.
   (`rentals` → `subscribers.region` → `title_availability`) for a title not licensed in the
   renter's region returns 0 rows.
 - **Rental price is a known price point.** `rentals.price ∈ {4.99, 6.99, 19.99}`.
+- **Rentals fall on/after release.** `rentals.rented_date >= titles.release_date` for the
+  rented title (you can't rent a title before it exists) and stays within the window — the date
+  is drawn as a fraction of `[max(release_date, start_date), end_date)`, so a rental never
+  predates its title.
 - **Plan attributes are a fixed function of tier.** From `PLANS`: Basic 1 stream / `SD` / ad-supported, Standard 2 / `HD` / ad-free, Premium 4 / `UHD` / ad-free — so `plans.max_streams ∈ {1, 2, 4}`, `plans.video_quality ∈ {SD, HD, UHD}`, and `plans.ad_supported` is true only for Basic. No jitter.
 - **Every region has a currency.** `regions.currency` is the market's ISO code from `REGIONS` (US USD, GB GBP, DE EUR, BR BRL, IN INR, JP JPY) — exactly one per region, never null.
 - **Title runtime is positive.** `titles.runtime_minutes > 0` (a clamped-normal keyed on `kind`, floored at 5 minutes), and `titles.maturity_rating ∈ MATURITY_RATINGS` (`{G, PG, PG-13, R, TV-MA}`).
@@ -144,6 +148,11 @@ update the matching line below in the same change.
   uniformly, so there is no "heavy renter" concentration (rentals/subscriber ≈ Poisson-ish,
   max a handful). Concentrating rentals in a whale minority is a candidate future scenario,
   not a realism fix.
+- **Rental price is per-transaction, not a title attribute.** `rentals.price` is an
+  independent weighted draw on every rental, so the *same* title can be rented at $4.99 and
+  $19.99 in the same period — price does not attach to the title, nor decay from a day-and-date
+  $19.99 toward catalogue pricing as a release ages. A title×time price ladder (new releases
+  command the premium tier, older ones drop) is a candidate future scenario, not a realism fix.
 - **Genre is near-uniform across titles.** Each title is a random figure dropped into a
   random *off-genre* show, so the eight show genres come out roughly even (each ≈0.09–0.17)
   rather than following a real catalogue's skew. The uniform draw is a by-product of the

@@ -20,9 +20,14 @@ collections/
     scenarios/
       <signal>.md   one markdown doc per intended analytical signal in the data.
     realism-guidance.md   the review rubric: plausibility rules the data must respect.
-    TODO.md         optional field-enrichment backlog written by
-                    `/data-collection:suggest-analytic-fields` — candidate columns
-                    to add later; a planning doc, not part of generation.
+    realism-log.md  the running log of realism work — history, not backlog:
+                    top-line status (converged / needs investigation), the realism
+                    iterations done, and the field-enrichment runs done. Open items
+                    live in TODO.md.
+    TODO.md         the collection's open backlog — field-enrichment suggestions
+                    (from `/data-collection:suggest-analytic-fields`) plus the open
+                    realism items to investigate. A planning doc, not part of
+                    generation.
 ```
 
 `labor/` is the worked reference — copy its shape.
@@ -132,6 +137,31 @@ Like scenario magnitudes, these numbers must track the generators: if you retune
 same change. `tests/collections/test_scenarios.py` enforces that the file exists.
 The `labor` / `hotel` docs are the worked references.
 
+## Realism log and TODO: history vs. backlog
+
+Where `realism-guidance.md` is the *rubric* (the rules the data must respect),
+`realism-log.md` and `TODO.md` (same package root) split the surrounding workflow
+into **history** and **backlog** — the log is what's been done, the TODO is what's
+left.
+
+`realism-log.md` is a pure **log**: a **top-line status** (`Converged` — sweeps done,
+residual items are deliberate simplifications — vs `Needs investigation` — unswept
+too-synthetic risks remain), the **realism iterations** done (each
+`/data-collection:review-edit-regen-for-realism` pass: what was measured, found, and
+fixed, referencing the commit), and the **field-enrichment runs** done (each
+`/data-collection:suggest-analytic-fields` pass: what was surveyed and which columns
+shipped). It records history only — no open items — so append an entry whenever you
+run a pass and re-evaluate the status.
+
+`TODO.md` is the matching **open backlog**, in two sections: **field-enrichment**
+suggestions (candidate new columns, quick-wins-first, written by
+`/data-collection:suggest-analytic-fields`) and **open realism items to investigate**
+(candidate too-synthetic artifacts — flat/uniform distributions, constant
+sub-population averages, round-number lattices, absent noise — for
+`/data-collection:review-edit-regen-for-realism`). When you clear an item, implement
+it and move it into the log as a run. Both are planning/history docs, not part of
+generation, so no test enforces them.
+
 ## Adding a collection
 
 1. `mkdir collections/<name>/` with `__init__.py`, `tables/` (+ `__init__.py`),
@@ -144,8 +174,11 @@ The `labor` / `hotel` docs are the worked references.
 5. Write at least one `scenarios/*.md` for the signals you planted.
 6. Write `realism-guidance.md` at the package root — the review rubric (invariants,
    mixes, deliberate simplifications) for the collection.
-7. Add a row to the README collections table.
-8. Mirror tests under `tests/collections/<name>/` (behavioural tests go through
+7. Seed `realism-log.md` (status + the initial build as the first realism iteration)
+   and `TODO.md` (the open too-synthetic areas to investigate; field-enrichment
+   suggestions get added when `/data-collection:suggest-analytic-fields` is run).
+8. Add a row to the README collections table.
+9. Mirror tests under `tests/collections/<name>/` (behavioural tests go through
    `generate("<name>", ...)`); the parametrized `tests/test_runner.py` picks the
    collection up automatically for determinism / non-empty checks.
 

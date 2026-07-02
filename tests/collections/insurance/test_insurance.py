@@ -133,6 +133,30 @@ def test_coverage_limit_exceeds_deductible(insurance: dict[str, pl.DataFrame]) -
     assert policies.filter(pl.col("coverage_limit") <= pl.col("deductible")).height == 0
 
 
+def _auto_standard(frames: dict[str, pl.DataFrame]) -> pl.DataFrame:
+    # The largest product/tier cell — isolates the premium↔coverage/deductible
+    # co-movement from the (independent) product and tier level shifts.
+    return (
+        frames["policies"]
+        .join(frames["policyholders"].select("policyholder_id", "risk_tier"), on="policyholder_id")
+        .filter((pl.col("product") == "auto") & (pl.col("risk_tier") == "standard"))
+    )
+
+
+def test_premium_rises_with_coverage(insurance: dict[str, pl.DataFrame]) -> None:
+    sub = _auto_standard(insurance)
+    by_cov = sub.group_by("coverage_limit").agg(pl.col("annual_premium").mean().alias("m"))
+    means = by_cov.sort("coverage_limit")["m"].to_list()
+    assert means[-1] > means[0]
+
+
+def test_premium_falls_with_higher_deductible(insurance_full: dict[str, pl.DataFrame]) -> None:
+    sub = _auto_standard(insurance_full)
+    by_ded = sub.group_by("deductible").agg(pl.col("annual_premium").mean().alias("m"))
+    means = by_ded.sort("deductible")["m"].to_list()
+    assert means[0] > means[-1]
+
+
 def test_reported_amount_and_premium_are_positive(insurance: dict[str, pl.DataFrame]) -> None:
     reported_ok = insurance["claims"].filter(pl.col("reported_amount") <= 0).height == 0
     premium_ok = insurance["policies"].filter(pl.col("annual_premium") <= 0).height == 0

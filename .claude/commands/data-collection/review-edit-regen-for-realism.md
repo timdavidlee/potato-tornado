@@ -36,6 +36,13 @@ Audit **one** collection per run. If the collection has no `realism-guidance.md`
 one first per the template in collections/CLAUDE.md (invariants / distributions & mixes /
 deliberate simplifications) — you can't review against a rubric that doesn't exist.
 
+Two companion docs frame this work (see collections/CLAUDE.md, "Realism log and TODO"):
+`TODO.md` holds the collection's **open backlog**, including an **Open realism items to
+investigate** section — read it first; those are your candidate targets for this pass, on top
+of anything the 2b sweep turns up. `realism-log.md` is the **running log** — the completed
+realism iterations and their top-line status. If either doc is missing, seed it per
+collections/CLAUDE.md. You'll update both in step 5b.
+
 ## 2. Ground-truth the current data
 
 Don't trust the rubric's numbers — measure the generator as it stands.
@@ -153,6 +160,20 @@ one behavior per test.
 - If you spotted a surprising subset signal in step 3, list it as a **candidate scenario**
   in your report (for `/scenario:draft-or-propose`) — don't add it to the rubric.
 
+## 5b. Update the log and backlog
+
+`realism-guidance.md` is the *rubric*; `realism-log.md` is the *history* and `TODO.md` the
+*open backlog*. Keep them in step (see collections/CLAUDE.md, "Realism log and TODO"):
+
+- **Append a realism iteration to `realism-log.md`** under `## Realism iterations` — a dated
+  bullet naming what you measured, found, and fixed (mirror the existing entries; reference the
+  commit once it lands).
+- **Re-evaluate the top-line status.** `Converged` if the sweeps are done and residual items
+  are deliberate simplifications; `Needs investigation` if unswept too-synthetic risks remain.
+- **Clear the backlog items you resolved.** In `TODO.md`'s **Open realism items to
+  investigate**, check off / remove any item this pass addressed; add any new too-synthetic
+  candidate you found but chose not to fix now. Open items live in `TODO.md`, never in the log.
+
 ## 6. Gate and report
 
 Run the full gate and fix anything it flags:
@@ -166,6 +187,7 @@ you found (with before/after numbers), each **synthetic-smell finding from the 2
 (the segment/column, the measured artifact, and whether you fixed it or judged it an
 intentional simplification), which `tables/` modules you edited (or that the data was already
 realistic), the tests you added/extended (`file:line`), the `realism-guidance.md` lines you
-reconciled, and any candidate scenarios you noticed but deliberately left for the scenario
-command. If a fix vs. deliberate-simplification call was genuinely ambiguous, surface it as a
+reconciled, the `realism-log.md` iteration you appended (and the new top-line status), the
+`TODO.md` open-realism items you cleared, and any candidate scenarios you noticed but
+deliberately left for the scenario command. If a fix vs. deliberate-simplification call was genuinely ambiguous, surface it as a
 question rather than guessing.

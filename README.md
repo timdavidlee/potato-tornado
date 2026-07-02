@@ -65,6 +65,8 @@ Each collection is a **package** `src/potato_tornado/collections/<name>/`:
   tables/         one module per table: build_<table>(ctx) -> polars.DataFrame
   scenarios/      markdown docs for the intended signals planted in the data
   realism-guidance.md  review rubric: invariants, mixes, deliberate simplifications
+  realism-log.md  running log of realism work: status + iterations + enrichment runs
+  TODO.md         open backlog: field-enrichment suggestions + open realism items
 ```
 
 1. Write one `build_<table>` per table under `tables/`. Each takes a
@@ -80,6 +82,10 @@ Each collection is a **package** `src/potato_tornado/collections/<name>/`:
 4. Document the signals you planted in `scenarios/*.md` (the teaching "answer key"),
    and write `realism-guidance.md` — the review rubric of invariants, mixes, and
    deliberate simplifications for the collection.
+5. Seed `realism-log.md` (the running log of realism work — status plus the
+   iterations and field-enrichment runs done) and `TODO.md` (the open backlog —
+   field-enrichment suggestions plus open realism items to investigate). The log is
+   history; open work lives in the TODO.
 
 See [`labor/`](src/potato_tornado/collections/labor) for a worked example and
 [`collections/CLAUDE.md`](src/potato_tornado/collections/CLAUDE.md) for the full

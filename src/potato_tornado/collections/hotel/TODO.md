@@ -99,3 +99,18 @@ tests in `tests/collections/hotel/test_hotel.py`.
 - **Scenario:** planted **premium rooms run cooler** —
       `scenarios/premium-rooms-run-cooler.md` (utilization Standard ≈0.097 down to Penthouse
       ≈0.058). Realism-guidance reconciled; pinned with tests.
+
+## Open realism items to investigate
+
+Too-synthetic / drift candidates for `/data-collection:review-edit-regen-for-realism`
+(existing data to investigate, not new fields). The realism-log records the *runs*; these are
+the *open* items. Most are documented candidates to *promote into scenarios*.
+
+- [ ] **No weekday/weekend or seasonal rate variation.** Rates are flat by calendar (a
+      documented simplification); a rate-by-day-of-week series reads implausibly flat — the
+      strongest realism-flavoured candidate.
+- [ ] **Forecast error band is flat across segments.** Documented as not varying by weekend; a
+      candidate to make error covary with demand.
+- [ ] **Star-rating review premium / YoY demand trend not wired.** Both are documented
+      candidates to promote into scenarios (`/scenario:draft-or-propose`); today the cross-tabs
+      read flat.

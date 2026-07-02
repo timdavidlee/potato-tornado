@@ -8,6 +8,8 @@ stream. A subscriber can only rent a title that is **licensed in their region**
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import numpy as np
 import polars as pl
 
@@ -39,6 +41,9 @@ def build_rentals(ctx: GenContext) -> pl.DataFrame:
 
     titles = ctx.table("titles")
     premium_ids = set(titles.filter(pl.col("is_premium"))["title_id"].to_list())
+    release_by_title: dict[str, date] = dict(
+        zip(titles["title_id"].to_list(), titles["release_date"].to_list(), strict=True)
+    )
 
     # region -> titles licensed there (premium subset preferred, any as fallback).
     avail = ctx.table("title_availability")
@@ -61,23 +66,35 @@ def build_rentals(ctx: GenContext) -> pl.DataFrame:
     price_idx = ctx.rng.child("price").numpy.choice(
         len(PREMIUM_RENTAL_PRICES), size=n, p=PREMIUM_RENTAL_PRICE_WEIGHTS
     )
-    rented = ctx.dist.dates_between(n, ctx.config.start_date, ctx.config.end_date)
+    # Rental date is drawn per rental as a fraction of the window *after* the rented
+    # title's release — you can't rent a title before it exists. A dedicated child
+    # stream so it doesn't reorder the subscriber / title / price draws above.
+    rented_frac = ctx.rng.child("rented").numpy.random(n)
     # Tender used for the rental — a dedicated child stream so it doesn't reorder
     # the subscriber / title / price / date draws above.
     payment = ctx.rng.child("payment").numpy.choice(
         np.asarray(PAYMENT_METHODS, dtype=object), size=n, p=PAYMENT_METHOD_WEIGHTS
     )
 
+    start_date = ctx.config.start_date
+    end_date = ctx.config.end_date
     out_sub: list[str] = []
     out_title: list[str] = []
     out_price: list[float] = []
+    out_rented: list[date] = []
     for i in range(n):
         idx = int(sub_idx[i])
         region = sub_regions[idx]
         candidates = premium_by_region.get(region) or any_by_region.get(region) or all_premium
+        tid = candidates[int(title_roll[i]) % len(candidates)]
         out_sub.append(sub_ids[idx])
-        out_title.append(candidates[int(title_roll[i]) % len(candidates)])
+        out_title.append(tid)
         out_price.append(PREMIUM_RENTAL_PRICES[int(price_idx[i])])
+        # Rentable only on/after release, and within the data window.
+        earliest = max(release_by_title[tid], start_date)
+        span = (end_date - earliest).days
+        offset = int(rented_frac[i] * span) if span > 0 else 0
+        out_rented.append(earliest + timedelta(days=offset))
 
     # Only a minority of rentals are rated; the score mean is keyed on the price
     # tier via a dedicated child stream so it doesn't reorder the draws above.
@@ -94,7 +111,7 @@ def build_rentals(ctx: GenContext) -> pl.DataFrame:
             "rental_id": [f"RNT-{i:07d}" for i in range(1, n + 1)],
             "subscriber_id": out_sub,
             "title_id": out_title,
-            "rented_date": rented,
+            "rented_date": out_rented,
             "price": out_price,
             "payment_method": payment,
             "rating": rating,

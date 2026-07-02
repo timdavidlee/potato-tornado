@@ -25,6 +25,13 @@ _STATUSES = ["active", "lapsed", "cancelled"]
 _STATUS_WEIGHTS = [0.82, 0.12, 0.06]
 _PREMIUM_SIGMA = 0.40
 
+# Small underwriting nudges: premium rises with the chosen coverage step and falls as
+# the deductible rises (the insured retains more risk). Both are centred on their
+# weighted mean so the per-tier premium medians are unchanged — the effect is a weak
+# correlation that lives inside the lognormal scatter, not a discoverable subset gap.
+_COVERAGE_PREMIUM_FACTOR = {0.5: 0.90, 1.0: 1.00, 2.0: 1.15}
+_DEDUCTIBLE_PREMIUM_FACTOR = {250.0: 1.06, 500.0: 1.00, 1000.0: 0.92}
+
 
 def build_policies(ctx: GenContext) -> pl.DataFrame:
     n = ctx.n(5000)
@@ -42,22 +49,33 @@ def build_policies(ctx: GenContext) -> pl.DataFrame:
 
     policyholder_id = ctx.dist.choice(n, holder_ids)
     product = ctx.dist.choice(n, product_names, product_weights)
+    coverage_step = ctx.dist.choice(n, [str(s) for s in _COVERAGE_STEPS], _COVERAGE_WEIGHTS).astype(
+        float
+    )
+    deductible = ctx.dist.choice(n, [str(d) for d in _DEDUCTIBLES], _DEDUCTIBLE_WEIGHTS).astype(
+        float
+    )
 
     # Premium: product base x tier multiplier as the lognormal median, so tier and
-    # product both shift the whole distribution while keeping a right skew.
-    median = np.array(
-        [
-            premium_median_of[p] * tier_mult[tier_of[h]]
-            for p, h in zip(product, policyholder_id, strict=True)
-        ]
+    # product both shift the whole distribution while keeping a right skew; the policy's
+    # own coverage step (up) and deductible (down) then nudge that median so premium
+    # co-moves with what it insures.
+    cov_factor = np.array([_COVERAGE_PREMIUM_FACTOR[s] for s in coverage_step])
+    ded_factor = np.array([_DEDUCTIBLE_PREMIUM_FACTOR[d] for d in deductible])
+    median = (
+        np.array(
+            [
+                premium_median_of[p] * tier_mult[tier_of[h]]
+                for p, h in zip(product, policyholder_id, strict=True)
+            ]
+        )
+        * cov_factor
+        * ded_factor
     )
     annual_premium = np.round(
         ctx.rng.child("premium").numpy.lognormal(np.log(median), _PREMIUM_SIGMA), 2
     )
 
-    coverage_step = ctx.dist.choice(n, [str(s) for s in _COVERAGE_STEPS], _COVERAGE_WEIGHTS).astype(
-        float
-    )
     coverage_limit = np.array([coverage_base_of[p] for p in product]) * coverage_step
 
     return pl.DataFrame(
@@ -72,9 +90,7 @@ def build_policies(ctx: GenContext) -> pl.DataFrame:
             ),
             "annual_premium": annual_premium,
             "coverage_limit": np.round(coverage_limit, 2),
-            "deductible": ctx.dist.choice(
-                n, [str(d) for d in _DEDUCTIBLES], _DEDUCTIBLE_WEIGHTS
-            ).astype(float),
+            "deductible": deductible,
             "status": ctx.dist.choice(n, _STATUSES, _STATUS_WEIGHTS),
         }
     )

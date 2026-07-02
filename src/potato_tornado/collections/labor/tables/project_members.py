@@ -26,6 +26,9 @@ def build_project_members(ctx: GenContext) -> pl.DataFrame:
     all_ids = employees["employee_id"].to_list()
     # Standard list rate per employee, to bill members onto their projects below.
     emp_bill = dict(zip(all_ids, employees["standard_bill_rate"].to_list(), strict=True))
+    # Whether each employee is client-billable, so non-billable members carry no
+    # project bill rate (null) — there is no client rate for bench/overhead staff.
+    emp_is_billable = dict(zip(all_ids, employees["is_billable"].to_list(), strict=True))
     # Seniority rung per employee, so the lead can be the most senior team member.
     role_rung = {role: i for i, role in enumerate(ROLES)}
     emp_rung = dict(zip(all_ids, [role_rung[r] for r in employees["role"].to_list()], strict=True))
@@ -85,10 +88,15 @@ def build_project_members(ctx: GenContext) -> pl.DataFrame:
     n = len(rows_proj)
     allocation = ctx.dist.choice(n, ["25", "50", "75", "100"], [0.15, 0.3, 0.2, 0.35]).astype(int)
     # Negotiated rate the member is billed at on this project = their standard rate
-    # times a realization discount (< 1). A flat discount off a dedicated child
-    # stream — the depressed-realization-by-billing-type signal is a future scenario.
+    # times a realization discount (< 1), but only for client-billable members —
+    # non-billable (bench / overhead) members carry a null bill rate. A flat discount
+    # off a dedicated child stream — the depressed-realization-by-billing-type signal
+    # is a future scenario.
     realization = np.clip(ctx.rng.child("realization").numpy.normal(0.85, 0.06, size=n), 0.6, 1.0)
-    bill_rate = np.round(np.array([emp_bill[e] for e in rows_emp]) * realization, 2)
+    bill_rate = [
+        round(emp_bill[e] * float(r), 2) if emp_is_billable[e] else None
+        for e, r in zip(rows_emp, realization, strict=True)
+    ]
 
     # Roll-on / roll-off dates: when each member joined and left the project,
     # bounded to [project.start_date, target_end_date]. Own child stream so the
@@ -138,6 +146,6 @@ def build_project_members(ctx: GenContext) -> pl.DataFrame:
             "allocation_pct": allocation,
             "rolled_on_date": pl.Series(rolled_on, dtype=pl.Date),
             "rolled_off_date": pl.Series(rolled_off, dtype=pl.Date),
-            "bill_rate": bill_rate,
+            "bill_rate": pl.Series(bill_rate, dtype=pl.Float64),
         }
     )
