@@ -23,6 +23,20 @@ _ZONE_FEE = 1.25
 _ZONES = [1, 2, 3, 4, 5, 6, 7, 8]
 _ZONE_WEIGHTS = [0.06, 0.10, 0.16, 0.20, 0.20, 0.14, 0.09, 0.05]
 
+# Parcel form factor (single-table literal), weighted toward small boxes — the bulk
+# of e-commerce parcels — with a thin pallet tail. Descriptive covariate for slicing
+# cost / weight / SLA; not wired into the cost identity.
+_PACKAGE_TYPES = ["envelope", "pak", "small_box", "large_box", "pallet"]
+_PACKAGE_WEIGHTS = [0.14, 0.14, 0.44, 0.22, 0.06]
+
+# Signature-required propensity: a low base lifted for premium service tiers and
+# heavy parcels (higher-value / higher-liability handling). Composes with
+# `deliveries.delivery_method` (signature parcels deliver via the signature path).
+_SIG_BASE = 0.05
+_SIG_SERVICE_BUMP = {"ground": 0.0, "express": 0.10, "overnight": 0.25}
+_SIG_HEAVY_KG = 20.0
+_SIG_HEAVY_BUMP = 0.20
+
 
 def build_shipments(ctx: GenContext) -> pl.DataFrame:
     n = ctx.n(8000)
@@ -57,6 +71,20 @@ def build_shipments(ctx: GenContext) -> pl.DataFrame:
     transit = np.array([transit_of[s] for s in service])
     promised_date = [d + timedelta(days=int(t)) for d, t in zip(ship_date, transit, strict=True)]
 
+    # Descriptive covariates on name-keyed child streams so they don't shift the
+    # draws above (cost / date identities stay exact).
+    package_type = ctx.rng.child("package_type").numpy.choice(
+        _PACKAGE_TYPES, size=n, p=_PACKAGE_WEIGHTS
+    )
+    p_sig = np.clip(
+        _SIG_BASE
+        + np.array([_SIG_SERVICE_BUMP[s] for s in service])
+        + np.where(weight_kg >= _SIG_HEAVY_KG, _SIG_HEAVY_BUMP, 0.0),
+        0.0,
+        1.0,
+    )
+    signature_required = ctx.rng.child("sig").numpy.random(n) < p_sig
+
     return pl.DataFrame(
         {
             "shipment_id": [f"SHP-{i:07d}" for i in range(1, n + 1)],
@@ -66,6 +94,8 @@ def build_shipments(ctx: GenContext) -> pl.DataFrame:
             "dest_city": ctx.entities.cities(n),
             "dest_zone": zone,
             "weight_kg": weight_kg,
+            "package_type": package_type,
+            "signature_required": signature_required,
             "shipping_cost": shipping_cost,
             "ship_date": ship_date,
             "promised_date": promised_date,

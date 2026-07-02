@@ -17,25 +17,19 @@ failure-cause detail** — the additions below close those gaps.
 
 ## Quick wins (realism enrichment)
 
-- [ ] **`shipments.package_type`** (`Utf8`) — `ctx.dist.choice` over
-      {envelope, pak, small_box, large_box, pallet} weighted toward small boxes. Unlocks:
-      slicing cost / weight / SLA by parcel form factor.
-- [ ] **`shipments.signature_required`** (`Boolean`) — `ctx.rng.child("sig").numpy.random < p`
-      with `p` higher for overnight / heavy parcels. Unlocks: handling-tier analysis; composes
-      with `deliveries.attempts` (signature parcels retry more).
-- [ ] **`carriers.transport_mode`** (`Utf8`) — a catalog literal per carrier in
-      `constants.CARRIERS` (ground / air / regional). Unlocks: mode-based transit and cost
-      comparison; a natural covariate for `service_level`.
-- [ ] **`carriers.fuel_surcharge_pct`** (`Float64`) — a small per-carrier rate in
-      `constants.CARRIERS` (~0.08–0.16). Unlocks: landed-cost split; composes with
-      `shipping_cost` (gross vs. base + surcharge).
-- [ ] **`warehouses.capacity_units`** (`Int64`) — `ctx.dist.integers` / lognormal per facility.
-      Unlocks: throughput-vs-capacity (shipments per capacity unit), hub-vs-satellite sizing.
-- [ ] **`warehouses.opened_date`** (`Date`) — `ctx.dist.dates_between` from a few years before
-      the window to its start. Unlocks: facility tenure / cohort analysis.
-- [ ] **`deliveries.delivery_method`** (`Utf8`) — `ctx.dist.choice` over
-      {doorstep, locker, pickup_point, signature}. Unlocks: last-mile mode mix; can key off
-      `signature_required`.
+All seven quick wins **shipped 2026-07-02** (see `realism-log.md` for the run) — kept here
+struck through as a record of what landed:
+
+- [x] **`shipments.package_type`** (`Utf8`) — weighted choice over
+      {envelope, pak, small_box, large_box, pallet}, toward small boxes.
+- [x] **`shipments.signature_required`** (`Boolean`) — `p` higher for overnight / heavy parcels.
+- [x] **`carriers.transport_mode`** (`Utf8`) — catalog literal per carrier (air / ground /
+      regional).
+- [x] **`carriers.fuel_surcharge_pct`** (`Float64`) — small per-carrier rate (~0.08–0.16).
+- [x] **`warehouses.capacity_units`** (`Int64`) — lognormal per facility.
+- [x] **`warehouses.opened_date`** (`Date`) — 1–10 years before the window start.
+- [x] **`deliveries.delivery_method`** (`Utf8`) — {doorstep, locker, pickup_point, signature},
+      keyed off `signature_required`, null on non-delivered.
 
 ## High-leverage additions
 

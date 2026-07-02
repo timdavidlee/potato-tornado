@@ -10,17 +10,20 @@ by two or more tables, so it is the single source of truth; single-table literal
 
 from __future__ import annotations
 
-# (carrier_name, base_rate, per_kg_rate, reliability) — the carrier catalogue.
-# `base_rate` / `per_kg_rate` feed the `shipments` cost identity; `reliability`
-# (on-time propensity, ~0.85-0.97) is read via the built `carriers` table by
-# `scan_events` to set each shipment's on-time chance. Single source of truth for
-# the `carriers` dim.
+# (carrier_name, base_rate, per_kg_rate, reliability, transport_mode,
+# fuel_surcharge_pct) — the carrier catalogue. `base_rate` / `per_kg_rate` feed the
+# `shipments` cost identity; `reliability` (on-time propensity, ~0.85-0.97) is read
+# via the built `carriers` table by `scan_events` to set each shipment's on-time
+# chance. `transport_mode` (air / ground / regional) and `fuel_surcharge_pct`
+# (~0.08-0.16, higher for air) are static dim attributes — mode/landed-cost
+# covariates, not (yet) wired into the cost identity. Single source of truth for the
+# `carriers` dim.
 CARRIERS = [
-    ("Summit Courier", 4.00, 1.10, 0.97),
-    ("Pony Express Freight", 3.50, 0.90, 0.95),
-    ("BlueDart Logistics", 3.00, 0.85, 0.92),
-    ("Meridian Parcel", 2.75, 0.80, 0.89),
-    ("Coyote Ground", 2.25, 0.70, 0.85),
+    ("Summit Courier", 4.00, 1.10, 0.97, "air", 0.16),
+    ("Pony Express Freight", 3.50, 0.90, 0.95, "air", 0.14),
+    ("BlueDart Logistics", 3.00, 0.85, 0.92, "ground", 0.11),
+    ("Meridian Parcel", 2.75, 0.80, 0.89, "regional", 0.10),
+    ("Coyote Ground", 2.25, 0.70, 0.85, "ground", 0.08),
 ]
 
 # (name, promised_transit_days, price_multiplier, weight) — the service ladder.
