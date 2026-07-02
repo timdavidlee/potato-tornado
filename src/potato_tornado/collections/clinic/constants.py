@@ -46,6 +46,23 @@ VISIT_TYPES = [
     ("Telehealth", 0.12, 15, 90.0, -0.05),
 ]
 
+# Per-specialty visit-type profile. Each provider's specialty tilts what happens
+# in the room: a paediatrician's book skews to new-patient / well-child visits, a
+# dermatologist's or orthopaedist's to minor procedures, an internist's or
+# cardiologist's to chronic care. Weights are over ``VISIT_TYPES`` in order
+# (New Patient, Follow-up, Annual Physical, Chronic Care, Minor Procedure,
+# Telehealth) and sum to 1.0 per specialty. The clinic-wide marginal is the
+# appointment-weighted average of these rows (≈ the ``VISIT_TYPES`` booking
+# weights). See ``scenarios/visit-mix-by-specialty.md``.
+SPECIALTY_VISIT_MIX = {
+    "Family Medicine": (0.12, 0.34, 0.18, 0.22, 0.04, 0.10),
+    "Pediatrics": (0.22, 0.32, 0.24, 0.08, 0.00, 0.14),
+    "Internal Medicine": (0.08, 0.30, 0.14, 0.34, 0.04, 0.10),
+    "Dermatology": (0.12, 0.36, 0.08, 0.08, 0.24, 0.12),
+    "Cardiology": (0.06, 0.32, 0.12, 0.36, 0.08, 0.06),
+    "Orthopedics": (0.14, 0.34, 0.08, 0.10, 0.26, 0.08),
+}
+
 # Payer mix for invoices. Each row is ``(payer, mix_weight, paid_in_full_prob)``
 # where ``paid_in_full_prob`` is the chance the claim settles in full (balance 0,
 # status "paid"); otherwise only a partial amount is recovered and the remainder

@@ -114,3 +114,65 @@ def test_self_pay_dominates_accounts_receivable(clinic: dict[str, pl.DataFrame])
 def test_provider_utilisation_varies(clinic: dict[str, pl.DataFrame]) -> None:
     util = clinic["slots"].group_by("provider_id").agg(pl.col("is_booked").mean().alias("u"))
     assert cast(float, util["u"].max()) - cast(float, util["u"].min()) > 0.15
+
+
+def test_frequent_patients_concentrate_bookings(clinic: dict[str, pl.DataFrame]) -> None:
+    per_patient = (
+        clinic["appointments"]
+        .group_by("patient_id")
+        .agg(pl.len().alias("appts"))
+        .sort("appts", descending=True)
+    )
+    top_decile = max(1, per_patient.height // 10)
+    total = cast(int, per_patient["appts"].sum())
+    top_share = cast(int, per_patient.head(top_decile)["appts"].sum()) / total
+    assert top_share > 0.25  # skewed booking; a uniform draw would sit near ~0.15
+
+
+def test_winter_volume_exceeds_summer(clinic: dict[str, pl.DataFrame]) -> None:
+    appts = clinic["appointments"].with_columns(pl.col("scheduled_at").dt.month().alias("m"))
+    winter = appts.filter(pl.col("m").is_in([12, 1, 2])).height
+    summer = appts.filter(pl.col("m").is_in([6, 7, 8])).height
+    assert winter / summer > 1.10  # seasonal peak; a uniform calendar would sit near ~1.0
+
+
+def test_appointment_volume_grows_year_over_year(clinic: dict[str, pl.DataFrame]) -> None:
+    by_year = (
+        clinic["appointments"]
+        .with_columns(pl.col("scheduled_at").dt.year().alias("y"))
+        .group_by("y")
+        .len()
+        .sort("y")
+    )
+    first = cast(int, by_year["len"][0])
+    last = cast(int, by_year["len"][-1])
+    assert last > first * 1.05  # upward trend; ~+8%/yr, year 3 well above year 1
+
+
+def test_charge_per_visit_varies_by_procedure(clinic: dict[str, pl.DataFrame]) -> None:
+    inv = clinic["invoices"].join(
+        clinic["visits"].select(["visit_id", "visit_type"]), on="visit_id"
+    )
+    avg = inv.group_by("visit_type").agg(pl.col("charge").mean().alias("c"))
+    assert cast(float, avg["c"].max()) / cast(float, avg["c"].min()) > 3.0  # ~$340 vs ~$90
+
+
+def test_visit_mix_varies_by_specialty(clinic: dict[str, pl.DataFrame]) -> None:
+    appts = clinic["appointments"].join(
+        clinic["providers"].select(["provider_id", "specialty"]), on="provider_id"
+    )
+    minor = appts.group_by("specialty").agg(
+        (pl.col("visit_type") == "Minor Procedure").mean().alias("m")
+    )
+    spread = cast(float, minor["m"].max()) - cast(float, minor["m"].min())
+    assert spread > 0.15  # procedure-heavy specialties ~0.22+, paediatrics ~0.00
+
+
+def test_arrival_delay_grows_through_the_day(clinic: dict[str, pl.DataFrame]) -> None:
+    visits = clinic["visits"].join(
+        clinic["appointments"].select(["appointment_id", "scheduled_at"]), on="appointment_id"
+    )
+    visits = visits.with_columns(pl.col("scheduled_at").dt.hour().alias("h"))
+    early = cast(float, visits.filter(pl.col("h") < 10)["arrival_delay_min"].mean())
+    late = cast(float, visits.filter(pl.col("h") >= 15)["arrival_delay_min"].mean())
+    assert late - early > 6.0  # clinic runs behind; ~13 min swing across the day
