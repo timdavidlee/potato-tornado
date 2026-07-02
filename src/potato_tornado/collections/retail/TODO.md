@@ -18,17 +18,21 @@ additions below close those gaps.
 
 ## Quick wins (realism enrichment)
 
-- [ ] **`products.brand`** (`Utf8`) — `ctx.dist.choice` over a per-category brand catalog in
-      `constants.py`. Unlocks: brand-level sales / return slicing.
-- [ ] **`products.weight_kg`** (`Float64`) — `ctx.dist.lognormal` by category. Unlocks:
-      shipping-cost modelling; a covariate for `damaged_in_transit` returns.
-- [ ] **`orders.payment_method`** (`Utf8`) — {card, paypal, gift_card, bnpl} weighted. Unlocks:
+_All six shipped (see `realism-log.md`, 2026-07-02). Brand/weight live inline in
+`products.py` (single-table literals) rather than `constants.py`, and all new draws use
+name-keyed child streams so existing columns/tests are byte-identical._
+
+- [x] **`products.brand`** (`Utf8`) — uniform over a per-category house catalog (`_BRANDS` in
+      `products.py`). Unlocks: brand-level sales / return slicing.
+- [x] **`products.weight_kg`** (`Float64`) — per-category lognormal, clamped [0.05, 30]. Unlocks:
+      shipping-cost modelling; a covariate for `damaged_in_transit` returns (not yet wired).
+- [x] **`orders.payment_method`** (`Utf8`) — {card, paypal, gift_card, bnpl} weighted. Unlocks:
       tender mix; a BNPL-vs-card cut.
-- [ ] **`customers.acquisition_channel`** (`Utf8`) — {organic, paid_search, social, referral,
+- [x] **`customers.acquisition_channel`** (`Utf8`) — {organic, paid_search, social, referral,
       email} weighted. Unlocks: acquisition-source analysis alongside `segment`.
-- [ ] **`customers.marketing_opt_in`** (`Boolean`) — `ctx.dist.bernoulli`. Unlocks:
+- [x] **`customers.marketing_opt_in`** (`Boolean`) — Bernoulli(0.60). Unlocks:
       addressable-audience sizing.
-- [ ] **`returns.refund_method`** (`Utf8`) — {original_payment, store_credit, exchange}.
+- [x] **`returns.refund_method`** (`Utf8`) — {original_payment, store_credit, exchange}.
       Unlocks: refund-disposition mix; composes with `refund_amount`.
 
 ## High-leverage additions
@@ -81,23 +85,27 @@ additions below close those gaps.
 
 Too-synthetic / drift candidates for `/data-collection:review-edit-regen-for-realism`
 (existing data to investigate, not new fields). The realism-log records the *runs*; these are
-the *open* items. **This collection has had no dedicated realism sweep yet** — start here.
+the *open* items. **First dedicated realism sweep done 2026-07-02** (see `realism-log.md`) —
+all five items resolved (two fixed, three judged deliberate).
 
-- [ ] **Returns depend on category and nothing else.** Return propensity and reason are keyed
-      only to product category — no coupling to price, customer `segment`, `channel`, order
-      size, or season. A returns-by-segment or returns-by-price cross-tab is flat; real return
-      behaviour varies with all of these. Most likely too-synthetic flag.
-- [ ] **Product-name lattice.** Names are `adjective × noun` from small inline lists (8 × 6 per
-      category → ≤48 distinct names/category), so names repeat heavily across 500 SKUs. Check
-      whether the repetition reads as synthetic; consider widening the pools (or item 1
-      `products.brand`).
-- [ ] **No calendar seasonality.** `order_date` is uniform across the window — real retail has
-      holiday/seasonal peaks. A monthly order-count series looks implausibly flat.
-- [ ] **`unit_price` per category is a single lognormal median.** No sub-category or
-      per-product price level — verify there's no round-number clustering and the premium tail
-      is believable.
-- [ ] **`restocked` is keyed only to reason.** Confirm the restock rate by reason isn't an
-      obvious step function once sliced (item 4 `returns.item_condition` is the natural fix).
+- [x] **Returns depend on category and nothing else.** _Judged deliberate_ — confirmed flat by
+      segment (0.11–0.12), channel, and within-category price (apparel hi/lo 0.224 vs 0.236).
+      This is the collection's planted signal (category is the sole covariate); coupling returns
+      to price/segment would be a **scenario**, not a realism fix. Documented under
+      "Deliberate simplifications".
+- [x] **Product-name lattice.** _Fixed_ — added a per-category qualifier word and widened
+      adjectives to 12 (`adjective × qualifier × noun`, ~432 combos/category); distinct names
+      rose from 173 → 433 of 500 (≤3 dupes). See `products.py` + realism-log.
+- [x] **No calendar seasonality.** _Fixed_ — `order_date` now sampled with a repeating Q4 peak
+      (Nov ×1.4 / Dec ×1.55, Feb trough ×0.80); Nov+Dec ≈ 0.31 of a year's orders and the peak
+      recurs each year. See `orders.py` (`_MONTH_SEASONALITY`) + realism-log.
+- [x] **`unit_price` per category is a single lognormal median.** _Verified fine_ — 482/500
+      distinct prices, continuous cents (no round-number clustering), only 1 SKU at the \$500
+      clamp, believable premium tail. No change needed.
+- [x] **`restocked` is keyed only to reason.** _Judged deliberate_ — the per-reason step
+      (mind-change/fit ~0.9, defective/damaged ~0.05) is causally sensible. The natural
+      enhancement is the `returns.item_condition` field (high-leverage item 4 above), tracked as
+      field-enrichment, not a realism bug.
 
 ## When the list is done
 

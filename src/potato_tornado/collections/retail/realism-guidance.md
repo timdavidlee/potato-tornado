@@ -26,7 +26,12 @@ update the matching line below in the same change.
   `refund_amount > 0`, `item_count ≥ 1`.
 - **Catalogs are fixed.** `products.category ∈ CATEGORIES`; `returns.reason ∈ RETURN_REASONS`;
   `orders.channel ∈ {web, mobile, marketplace}`; `orders.status ∈ {delivered, shipped,
-  cancelled}`; `customers.segment ∈ {new, returning, vip}`.
+  cancelled}`; `customers.segment ∈ {new, returning, vip}`;
+  `customers.acquisition_channel ∈ {organic, paid_search, social, referral, email}`;
+  `orders.payment_method ∈ {card, paypal, gift_card, bnpl}`;
+  `returns.refund_method ∈ {original_payment, store_credit, exchange}`;
+  `products.brand ∈` the row category's brand catalog.
+- **Non-negativity / bounds (added fields).** `products.weight_kg ∈ [0.05, 30]`.
 
 ## Distributions & mixes (should look like the real world)
 
@@ -34,7 +39,11 @@ update the matching line below in the same change.
   `order_items` ≈ 2.5 × orders (≈ 30k, variable), `returns` ≈ 12% of `order_items` (≈ 3.5k).
 - **unit_price.** Lognormal (σ ≈ 0.7) with a per-category median (apparel \$22 / electronics
   \$55 / home \$26 / consumables \$8), clamped to [\$1, \$500]. Overall median ≈ **\$23**, a
-  long premium tail.
+  long premium tail. Cents are continuous (not charm-priced) and prices don't cluster on
+  round numbers; ~0.96 of SKUs carry a distinct price (no lattice).
+- **product_name.** `adjective × per-category qualifier × noun` (12 × 6 × 6 ≈ 432 combos per
+  category), so duplicate names are rare — ≈ **0.95** of the 500 SKUs carry a distinct name. A
+  synthetic label for joins, not a real SKU master.
 - **Category mix.** apparel 0.34 / home 0.26 / consumables 0.22 / electronics 0.18.
 - **item_count per order.** `1 + Poisson(1.5)` → mostly 1–3 items, tail to ~8, mean ≈ **2.5**.
 - **quantity per line.** 1 (0.80) / 2 (0.15) / 3 (0.05).
@@ -42,6 +51,12 @@ update the matching line below in the same change.
   **\$290**, mean ≈ \$107. Derived, not stored. See `scenarios/order-value-right-skew.md`.
 - **channel mix.** web 0.50 / mobile 0.40 / marketplace 0.10.
 - **order status.** delivered 0.90 / shipped 0.05 / cancelled 0.05.
+- **order_date (seasonal).** Sampled across the `[start, end)` window with a repeating
+  within-year retail cycle — a Q4 holiday peak (Nov ×1.4 / Dec ×1.55) and a Feb trough
+  (×0.80), ~1.9x peak-to-trough — so Nov+Dec ≈ **0.31** of a year's orders (vs 0.17 for a flat
+  calendar) and the peak recurs each year. On top of the cycle, order volume *grows* across
+  the window as the customer base accumulates (each customer orders only on/after signup); the
+  monotonic year-over-year rise is a plausible growth trend, not seasonality.
 - **Return rate (category-driven).** apparel ≈ 0.22 / electronics ≈ 0.10 / home ≈ 0.06 /
   consumables ≈ 0.02 → overall ≈ **0.12**. See `scenarios/return-rate-by-category.md`.
 - **Return reason mix (category-specific).** apparel skews `changed_mind` + `too_small`
@@ -52,6 +67,19 @@ update the matching line below in the same change.
   total. `restocked` depends on reason — fit/mind-change usually restock (~0.9),
   defective/damaged rarely do (~0.05).
 - **return_date.** order date + 5–30 days, clipped to stay inside the window.
+- **brand (`products`).** Uniform over the row category's 5-brand house catalog — so brand
+  sits *inside* the category, and a brand-level sales/return slice just re-expresses the
+  category gradient (no independent brand signal).
+- **weight_kg (`products`).** Lognormal (σ ≈ 0.5) with a per-category median (apparel 0.45 /
+  electronics 1.1 / home 1.6 / consumables 0.5 kg), clamped to [0.05, 30]. A shipping-cost
+  covariate, not yet coupled to `damaged_in_transit` returns.
+- **acquisition_channel (`customers`).** organic 0.30 / paid_search 0.25 / social 0.20 /
+  email 0.13 / referral 0.12. Independent of `segment` and of order/return behaviour.
+- **marketing_opt_in (`customers`).** Boolean, `True` ≈ 0.60. Independent of everything else.
+- **payment_method (`orders`).** card 0.55 / paypal 0.22 / bnpl 0.15 / gift_card 0.08.
+  Independent of basket value.
+- **refund_method (`returns`).** original_payment 0.70 / store_credit 0.22 / exchange 0.08.
+  Independent of `reason` and `restocked`.
 
 ## Deliberate simplifications (intended — do not "fix")
 
@@ -67,12 +95,22 @@ update the matching line below in the same change.
   is purely merchandise.
 - **No inventory or stock model.** Any product can appear on any order in any quantity; there
   are no stockouts, and `restocked` doesn't feed back into available inventory.
+- **`restocked` is keyed only to `reason`.** Restock likelihood is a per-reason probability
+  (mind-change/fit ~0.9, defective/damaged ~0.05) with no mediating item condition — a clean,
+  causally-sensible step by reason. Adding a `returns.item_condition` covariate is tracked as
+  field-enrichment in `TODO.md`, not a realism bug.
 - **Return propensity and reason depend only on category** — not on price, customer segment,
   channel, quantity, or season. A real store would couple returns to fit/size data and customer
   history; here category is the sole covariate (the planted signal).
 - **`segment` and `channel` carry no signal** — they're drawn independently of order value,
   return behavior, and each other; they exist for slicing practice, not a planted
   segment/channel scenario (natural future additions).
+- **The added descriptive fields carry no signal either** —
+  `customers.acquisition_channel` / `customers.marketing_opt_in`, `orders.payment_method`,
+  and `returns.refund_method` are all drawn independently of value and return behaviour
+  (slicing practice, not planted signals). `products.brand` is uniform *within* category, so
+  it inherits the category gradient rather than adding one, and `products.weight_kg` is a
+  category-keyed covariate not yet wired into shipping cost or damage-in-transit returns.
 
 ## How to review
 
@@ -97,4 +135,12 @@ from order_items oi
 join products p using (product_id)
 left join returns r using (order_item_id)
 group by p.category order by return_rate;
+
+-- Q4 seasonality: Nov+Dec carry ~0.31 of a year's orders (a flat calendar gives ~0.167)
+select sum(case when extract(month from order_date) in (11, 12) then 1 else 0 end)::float
+       / count(*) as q4_share
+from orders;
+
+-- product names are mostly distinct (~0.95; guards against the adjective+noun lattice)
+select count(distinct product_name)::float / count(*) as distinct_name_ratio from products;
 ```
