@@ -15,6 +15,7 @@ from datetime import date, timedelta
 import numpy as np
 import polars as pl
 
+from potato_tornado.collections.clinic.constants import SPECIALTY_UTILISATION
 from potato_tornado.core.collection import GenContext
 
 # Seasonal + growth shape for slot volume. Slot days are drawn with a per-day
@@ -28,7 +29,9 @@ _WINTER_PEAK_DOY = 15  # seasonal peak ≈ mid-January
 
 
 def build_slots(ctx: GenContext) -> pl.DataFrame:
-    providers = ctx.table("providers")["provider_id"].to_list()
+    providers_df = ctx.table("providers")
+    providers = providers_df["provider_id"].to_list()
+    specialty_of = dict(zip(providers, providers_df["specialty"].to_list(), strict=True))
     n = ctx.n(6000)
 
     business_days = _business_days(ctx.config.start_date, ctx.config.end_date)
@@ -39,9 +42,13 @@ def build_slots(ctx: GenContext) -> pl.DataFrame:
     slot_at = ctx.dist.combine(days, clock)
 
     provider_id = ctx.dist.choice(n, providers)
-    # Per-provider booking probability: some providers/specialties run fuller than
-    # others, so utilisation (booked / total slots) varies across the roster.
-    util = ctx.dist.clamped_normal(len(providers), mean=0.67, sd=0.12, low=0.35, high=0.92)
+    # Per-provider booking probability keyed by specialty: demand-heavy specialties
+    # run near-full while others carry spare capacity, so utilisation (booked / total
+    # slots) concentrates by specialty. A small per-provider jitter varies clinicians
+    # within a specialty; drawn from a named child stream to stay deterministic.
+    base = np.array([SPECIALTY_UTILISATION[specialty_of[p]] for p in providers])
+    jitter = ctx.rng.child("provider_util").numpy.normal(0.0, 0.04, size=len(providers))
+    util = np.clip(base + jitter, 0.35, 0.95)
     prob_by_provider = dict(zip(providers, util, strict=True))
     p_row = np.array([prob_by_provider[p] for p in provider_id])
     is_booked = ctx.rng.numpy.random(n) < p_row

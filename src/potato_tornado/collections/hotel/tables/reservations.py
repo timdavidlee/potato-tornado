@@ -9,8 +9,9 @@ import polars as pl
 
 from potato_tornado.collections.hotel.constants import (
     CHANNELS,
+    LEAD_TIME_BY_CHANNEL,
     RES_STATUS,
-    RES_STATUS_WEIGHTS,
+    RES_STATUS_BY_CHANNEL,
     ROOM_TYPES,
 )
 from potato_tornado.core.collection import GenContext
@@ -40,13 +41,14 @@ def build_reservations(ctx: GenContext) -> pl.DataFrame:
 
     room_type = ctx.dist.choice(n, type_names, type_weights)
     channel = _sample_channel(ctx, room_type)
+    status = _sample_status(ctx, channel)
 
     # Draw the arrival (check-in) date seasonally, then back out the booking date from
     # the lead time — so the summer peak lands cleanly on check_in_date / occupancy.
     check_in = _seasonal_arrivals(
         ctx.rng.child("arrival"), n, ctx.config.start_date, ctx.config.end_date
     )
-    lead_days = np.clip(ctx.dist.lognormal(n, median=14, sigma=0.9), 0, 240).astype(int)
+    lead_days = _sample_lead_days(ctx, channel)
     nights = np.clip(ctx.dist.poisson(n, 2.2) + 1, 1, 21)
     booked = np.array(
         [ci - timedelta(days=int(lead)) for ci, lead in zip(check_in, lead_days, strict=True)],
@@ -69,7 +71,7 @@ def build_reservations(ctx: GenContext) -> pl.DataFrame:
             "check_out_date": check_out,
             "party_size": np.clip(ctx.dist.poisson(n, 1.3) + 1, 1, 6),
             "nights": nights,
-            "status": ctx.dist.choice(n, RES_STATUS, RES_STATUS_WEIGHTS),
+            "status": status,
         }
     )
 
@@ -83,6 +85,27 @@ def _sample_channel(ctx: GenContext, room_type: np.ndarray) -> np.ndarray:
     u = ctx.rng.child("channel").numpy.random(room_type.shape[0])
     idx = (u[:, None] < cum).argmax(axis=1)
     return np.asarray(CHANNELS, dtype=object)[idx]
+
+
+def _sample_lead_days(ctx: GenContext, channel: np.ndarray) -> np.ndarray:
+    """Per-row booking lead time, lognormal with (median, sigma) keyed by channel.
+
+    OTA books far ahead with a fat tail, walk_in is same-/next-day; overall stays
+    right-skewed with median ≈14 days. Clipped to the [0, 240] booking-arithmetic cap.
+    """
+    median = np.array([LEAD_TIME_BY_CHANNEL[c][0] for c in channel])
+    sigma = np.array([LEAD_TIME_BY_CHANNEL[c][1] for c in channel])
+    draws = ctx.rng.child("lead").numpy.normal(np.log(median), sigma)
+    return np.clip(np.exp(draws), 0, 240).astype(int)
+
+
+def _sample_status(ctx: GenContext, channel: np.ndarray) -> np.ndarray:
+    """Per-row reservation status weighted by channel (drop-off concentrates in OTA)."""
+    cum_by_channel = {c: np.cumsum(w) for c, w in RES_STATUS_BY_CHANNEL.items()}
+    cum = np.array([cum_by_channel[c] for c in channel])  # (n, len(RES_STATUS))
+    u = ctx.rng.child("status").numpy.random(channel.shape[0])
+    idx = (u[:, None] < cum).argmax(axis=1)
+    return np.asarray(RES_STATUS, dtype=object)[idx]
 
 
 def _seasonal_arrivals(rng: Rng, n: int, start: date, end: date) -> np.ndarray:

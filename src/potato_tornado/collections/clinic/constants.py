@@ -19,6 +19,20 @@ SPECIALTIES = [
     "Orthopedics",
 ]
 
+# Slot utilisation (booked fraction) keyed by specialty: demand outstrips supply for
+# some specialties, so they run near-full, while others carry visible spare capacity.
+# A small per-provider jitter varies clinicians within a specialty. Averaged over a
+# roughly even specialty roster this lands overall utilisation ≈0.68. See
+# scenarios/provider-utilisation.md.
+SPECIALTY_UTILISATION = {
+    "Dermatology": 0.88,
+    "Cardiology": 0.82,
+    "Orthopedics": 0.74,
+    "Internal Medicine": 0.64,
+    "Family Medicine": 0.56,
+    "Pediatrics": 0.48,
+}
+
 # Appointment lifecycle. A booked slot is either kept (completed), missed
 # (no_show), called off ahead of time (cancelled), or still on the books
 # (scheduled). No-show is the planted teaching signal: its rate rises with

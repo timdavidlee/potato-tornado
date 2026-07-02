@@ -71,7 +71,7 @@ def build() -> Collection:
             TableSpec(
                 "room_upgrades",
                 build_room_upgrades,
-                depends_on=("stays", "room_types"),
+                depends_on=("stays", "room_types", "reservations"),
                 description="Mid-stay room-class upgrades sold as an upsell.",
             ),
             TableSpec(

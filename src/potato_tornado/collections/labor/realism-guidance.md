@@ -35,8 +35,10 @@ update the matching line below in the same change.
 - **Role pyramid.** Associate 0.50 → Senior Associate 0.25 → Lead 0.13 → Supervisor 0.08 →
   Manager 0.04. Most staff are junior.
 - **Employment mix.** full_time 0.60 / part_time 0.30 / contractor 0.10.
-- **Pay ladder.** Department base $21–28/hr; +18% per seniority rung; ±6% jitter clamped to
-  [0.85, 1.2]×.
+- **Pay ladder.** `hourly_rate = department_base × (1 + 0.18 × role_index) × jitter`.
+  Department base $21–28/hr (~33% spread); +18% per seniority rung; ±6% jitter clamped to
+  [0.85, 1.2]×. The base spread is wider than one rung, so department can outweigh a single
+  step of seniority. See `scenarios/department-base-can-outweigh-a-rung.md`.
 - **Shift shape.** morning/afternoon/night windows roughly uniform; durations 8h dominant
   (0.70), then 10h (0.20), 12h (0.10).
 - **Attendance.** ~4% no-show overall, but keyed to the shift window: night ≈0.075,

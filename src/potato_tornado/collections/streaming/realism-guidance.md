@@ -27,8 +27,9 @@ update the matching line below in the same change.
   `is_premium = true` (unless a tiny scale produced no premium titles, in which case rentals
   fall back to the region's — then the full — catalogue).
 - **Rentals are locally licensed.** Every rental's title is licensed in the renter's region:
-  the title appears in `title_availability` for `subscribers.region`. See
-  `scenarios/rentals-are-licensed-in-the-renters-region.md`.
+  the title appears in `title_availability` for `subscribers.region`. A three-table anti-join
+  (`rentals` → `subscribers.region` → `title_availability`) for a title not licensed in the
+  renter's region returns 0 rows.
 - **Rental price is a known price point.** `rentals.price ∈ {4.99, 6.99, 19.99}`.
 - **Title names follow the figure-in-off-genre pattern.** Every `titles.name` is a
   `<celebrity> in <show>` / `<celebrity>'s <show>` string where the celebrity is drawn from
