@@ -30,6 +30,14 @@ attributed. The additions below close those gaps.
       (first-notice-of-loss) channel analysis.
 - [ ] **`brokers.tenure_years`** (`Int64`) and **`brokers.commission_rate`** (`Float64`, ~0.08–0.15)
       — per-broker attributes. Unlocks: producer economics (commission on `annual_premium`).
+- [ ] **`policyholders.state`** (`Utf8`) — `ctx.dist.choice` over a US-state catalog literal
+      (population-weighted). Unlocks: state-level loss ratios and a regulatory cut (rates are
+      filed per state) — a coarser, joinable geography than the existing free-text `city`.
+- [ ] **`policies.bundled`** (`Boolean`) — **derivable, no draw**: true when the holder appears
+      on ≥2 `policies` rows (the multi-policy structure already exists; holders average ~1.75
+      policies). Unlocks: bundling / cross-sell mix from data already present, no new randomness.
+- [ ] **`policies.auto_renew`** (`Boolean`) — `ctx.dist.bernoulli(~0.7)`. Unlocks: retention
+      posture; composes with `status` (lapsed) and the future `renewal_count`.
 
 ## High-leverage additions
 
@@ -69,6 +77,89 @@ attributed. The additions below close those gaps.
 - **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: a subset
   of brokers writes systematically higher-loss-ratio business (turns the documented
   "broker/region aggregates are uniform" realism gap into a teachable signal).
+
+### 6. `claims.fraud_flag` (SIU referral)
+- [ ] `fraud_flag` / `siu_referral` (`Boolean`, low base rate ~0.03–0.06 via
+      `ctx.dist.bernoulli`), tilted toward `theft`/`liability` perils and larger
+      `reported_amount`. Buildable today — no new `core/distributions.py` helper needed.
+- **Unlocks:** fraud analytics — a major P&C domain the schema can't touch at all today
+      (referral rate, fraud-adjusted loss ratio, the denial funnel by fraud status).
+- **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: flagged
+  claims **deny far more often** (an inflated `denied` share) and, when paid, settle lower —
+  a surprising subset cut across the existing adjudication funnel. Name it; don't plant it.
+
+### 7. `claims.litigated` (attorney representation)
+- [ ] `litigated` (`Boolean`, ~0.08–0.12 via `ctx.dist.bernoulli`), concentrated on the
+      `liability` peril. Buildable today.
+- **Unlocks:** litigation economics — the "litigation tax" (litigated claims run heavier
+      severity and much longer cycle time), a claims-strategy staple.
+- **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: litigated
+  claims carry materially higher `paid_amount` **and** a longer `paid_date − claim_date` delay
+  than non-litigated peers — a subset that couples severity *and* settlement time to one flag.
+
+### Later / depends-on
+
+- [ ] **`claims.subrogation_recovery_amount`** (`Float64`, mostly 0 / nullable) — an insurer
+      recovery from an at-fault third party, offsetting `paid_amount`. **Depends on item 2's
+      `at_fault`** (recovery is only plausible on not-at-fault claims). Unlocks: net-of-subro
+      loss ratio (gross paid vs. net paid). Realism enrichment once `at_fault` exists.
+
+## Candidate new tables (within this collection)
+
+New tables that join into `insurance` (a new entity or event + its FK into an existing table),
+sketch-level — enough to act on, not a full column spec. A whole new *collection* (e.g. a
+standalone reinsurance domain) is `/data-collection:propose`'s job, not this. All buildable from
+existing `ctx` primitives — no new `core/distributions.py` helper.
+
+- [x] **`adjusters`** — **implemented 2026-07-02** (see `realism-log.md`). A 40-row handler dim
+      (`adjuster_id`, `full_name`, `email`, `team`, `seniority`) + a uniform `claims.adjuster_id`
+      FK. Assignment is signal-free (realism enrichment). The **scenario-bearing** angle — a
+      handler/team settling slower or partialing more — was *not* planted; it remains a
+      candidate for `/scenario:draft-or-propose`.
+- [x] **`quotes`** — **implemented 2026-07-02** (see `realism-log.md`). One converting quote per
+      policy + non-converting shopping quotes (`converted` ≈ 0.40), nullable `policy_id` FK.
+      Conversion is signal-free (flat vs premium/product). The **scenario-bearing** funnel —
+      conversion falling with `quoted_premium` / varying by `product` — was *not* planted; it
+      remains a candidate for `/scenario:draft-or-propose`.
+
+### `premium_billing`
+- [ ] **Grain:** one row per premium instalment on a policy. **Joins:**
+      `depends_on=("policies",)`, FK `premium_billing.policy_id → policies`. Expand each policy
+      into N instalments by its `payment_frequency` (the quick-win field — monthly=12 /
+      quarterly=4 / annual=1) so the instalments **sum to `annual_premium`** (an arithmetic
+      identity to pin).
+- **Key columns:** `billing_id` (`Utf8`), `policy_id` (`Utf8`), `due_date` (`Date`, stepped
+      from `start_date`), `amount` (`Float64`, `annual_premium / n`), `paid_date` (`Date`,
+      nullable), `status` (`Utf8`: paid / late / missed via `ctx.dist.choice`).
+- **Unlocks:** billing cash-flow and **delinquency** analytics; ties premium to a calendar
+      instead of one flat annual figure.
+- **Class:** realism enrichment (the instalment schedule), with a **scenario-bearing** angle
+      → `/scenario:draft-or-propose` if delinquency concentrates (e.g. monthly-pay or high_risk
+      policies miss more). Composes with — and **depends on** — the `policies.payment_frequency`
+      quick-win. Decomposes the annual premium without contradicting the "flat annual figure"
+      simplification (the instalments still sum to it).
+- **Wiring:** new `tables/premium_billing.py` builder + a `TableSpec(depends_on=("policies",))`
+      in `__init__.py`. No `registry.py` change.
+
+### Tables that would require revisiting a deliberate simplification
+
+These model real P&C structure but **contradict a documented Deliberate simplification** in
+`realism-guidance.md` — noted here (not proposed blindly) so the tension is a conscious call,
+not a surprise. Each needs that simplification relaxed first.
+
+- [ ] **`claim_status_history`** (one row per claim status transition:
+      reported → under_review → approved/partial/denied, with timestamps). Contradicts *"one
+      payout per claim … adjudicated once to a single terminal status"* and *"no reopenings"*.
+      Would unlock claim-lifecycle / cycle-time-between-stages analytics. Relax the single-status
+      simplification before building.
+- [ ] **`coverage_lines`** (one row per coverage line on a policy — e.g. auto's liability /
+      collision / comprehensive, each with its own limit, deductible, and premium share).
+      Contradicts *"coverage_limit takes a small set of values"* and the single-limit payout
+      arithmetic, and reworks how a claim maps to a covered line. High value (line-level loss
+      ratios) but a deep change to the payout model.
+- [ ] **`reinsurance_treaties`** + ceded-loss allocation. Contradicts *"loss ratio is pure paid
+      ÷ premium — no reinsurance"*, and is arguably its own domain (net-vs-gross, cessions) —
+      closer to a **new collection** (→ `/data-collection:propose`) than an in-collection table.
 
 ## Open realism items to investigate
 
