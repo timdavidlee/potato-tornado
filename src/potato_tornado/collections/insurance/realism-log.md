@@ -8,12 +8,35 @@ invariants + distributions, sweep for too-synthetic artifacts, fix generators, r
 reconcile the rubric + tests); a **field-enrichment run** is one
 `/data-collection:suggest-analytic-fields` pass. Open items live in `TODO.md`, not here.
 
-**Status: Converged** — two passes fixed an end-of-window claim pile-up and a flat premium
-sub-population; residual items are documented deliberate simplifications (open items in
-`TODO.md`). (as of 2026-07-02)
+**Status: Converged** — four passes fixed an end-of-window claim pile-up, a flat premium
+sub-population, a uniform peril histogram, and uniform policyholder tenure; the remaining
+open-realism items are documented deliberate simplifications (severity independence — a scenario
+candidate — the coverage lattice, and broker/region inertness), plus one low-priority residual
+(uniform broker tenure, a 40-row dim). (as of 2026-07-02)
 
 ## Realism iterations
 
+- **2026-07-02 — Too-synthetic sweep: uniform policyholder tenure.** A follow-up sweep of the
+  enrichment columns caught `policyholders.tenure_years` drawn **uniformly** over [0, 15] (flat
+  ~0.06 each, mean ≈ 7.5) — real customer tenure in a growing book is right-skewed. Replaced the
+  uniform draw with geometrically-decaying weights (ratio 0.85) over the same [0, 15] support:
+  mean ≈ 4.2, median 3, ~0.53 of holders ≤ 3 yr, monotonic taper to 15 (no boundary pile). Drawn
+  on the same isolated `tenure` child stream, so every other table stays byte-identical. Pinned
+  `test_policyholder_tenure_is_right_skewed` and reconciled the rubric. Same sweep confirmed
+  premium-by-channel, severity-by-age_band, and billing-missed-rate-by-cadence are all flat as
+  documented (signal-free). **Broker `tenure_years` is also uniform** but left as-is — a 40-row
+  dim where the shape is not a strong tell (noted in `TODO.md`).
+- **2026-07-02 — Too-synthetic sweep: uniform peril mix.** The `peril` histogram was flat
+  (`ctx.dist.choice` with no weights, ≈ 0.167 each — and `fire`, which should be rare, was the
+  *most* common at 0.20). Weighted it to a skewed personal-lines marginal (collision 0.28 /
+  water_damage 0.22 / weather 0.20 / theft 0.14 / liability 0.10 / fire 0.06), drawn off a
+  dedicated `peril` child stream. Peril stays independent of product/geography (unchanged
+  deliberate simplification) — only the marginal shape moved. The status draw reshuffled off the
+  parent stream but the adjudication mix and per-tier loss ratios held within seed noise
+  (approved ≈ 0.63, loss ratio 0.39 → 0.62 → 0.81). Pinned `test_peril_mix_is_skewed_not_uniform`
+  and reconciled the rubric's peril line. Swept and judged deliberate (left as-is): flat
+  severity-by-product (a scenario candidate — `catastrophe_flag`), the 7-value coverage lattice,
+  and the ~uniform broker region.
 - **2026-07-01 — Initial build + frequency/severity/loss-ratio self-consistency.** The
   proposal's targets (12% frequency, \$2.5k severity, \$1.3k premium → 0.65 loss ratio) were
   internally inconsistent (that mix yields ~0.26). Held premium and frequency on their

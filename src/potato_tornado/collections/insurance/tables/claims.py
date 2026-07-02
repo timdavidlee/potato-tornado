@@ -25,6 +25,22 @@ _SEVERITY_MEDIAN = 6000.0
 _SEVERITY_SIGMA = 1.0
 _DAYS_PER_MONTH = 30.4
 
+# Peril frequency mix — skewed, not uniform: water damage / collision are the common
+# personal-lines perils, fire the rare one. This is a *marginal* frequency only; peril
+# stays independent of product and geography (a deliberate simplification — see the
+# rubric). Keyed by name so it can't drift out of order against `PERILS`; drawn off a
+# dedicated `peril` child stream.
+_PERIL_WEIGHTS = {
+    "collision": 0.28,
+    "theft": 0.14,
+    "weather": 0.20,
+    "fire": 0.06,
+    "liability": 0.10,
+    "water_damage": 0.22,
+}
+_PERIL_P = np.array([_PERIL_WEIGHTS[p] for p in PERILS])
+_PERIL_P = _PERIL_P / _PERIL_P.sum()
+
 # FNOL (first-notice-of-loss) channel the claim came in on — a realism dimension drawn
 # independently of peril/severity (no signal planted), off its own child stream so the
 # existing peril/status draws stay byte-identical. Single-table literals.
@@ -90,7 +106,9 @@ def build_claims(ctx: GenContext) -> pl.DataFrame:
             "claim_id": [f"CLM-{i:07d}" for i in range(1, total + 1)],
             "policy_id": [policy_ids[p] for p in policy_idx],
             "claim_date": claim_date,
-            "peril": ctx.dist.choice(total, PERILS),
+            "peril": ctx.rng.child("peril").numpy.choice(
+                np.asarray(PERILS, dtype=object), size=total, p=_PERIL_P
+            ),
             "reported_amount": reported_amount,
             "status": ctx.dist.choice(total, _STATUSES, _STATUS_WEIGHTS),
             "adjuster_id": [adjuster_ids[i] for i in adjuster_idx],
