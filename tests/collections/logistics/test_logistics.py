@@ -133,6 +133,52 @@ def test_bounds_hold(logistics: dict[str, pl.DataFrame]) -> None:
     assert ok
 
 
+@pytest.mark.parametrize(
+    ("table", "column", "catalog"),
+    [
+        ("shipments", "package_type", {"envelope", "pak", "small_box", "large_box", "pallet"}),
+        ("carriers", "transport_mode", {"air", "ground", "regional"}),
+    ],
+)
+def test_catalog_columns_stay_in_their_catalog(
+    logistics: dict[str, pl.DataFrame], table: str, column: str, catalog: set[str]
+) -> None:
+    assert set(logistics[table][column].to_list()) <= catalog
+
+
+def test_fuel_surcharge_within_band(logistics: dict[str, pl.DataFrame]) -> None:
+    fuel = logistics["carriers"]["fuel_surcharge_pct"]
+    assert cast(float, fuel.min()) >= 0.08 and cast(float, fuel.max()) <= 0.16
+
+
+def test_capacity_units_are_positive(logistics: dict[str, pl.DataFrame]) -> None:
+    assert cast(int, logistics["warehouses"]["capacity_units"].min()) > 0
+
+
+def test_warehouses_opened_before_window_start(logistics: dict[str, pl.DataFrame]) -> None:
+    start = GenerationConfig(seed=13, scale=0.3).start_date
+    late = logistics["warehouses"].filter(pl.col("opened_date") >= start)
+    assert late.height == 0
+
+
+def test_delivery_method_present_iff_delivered(logistics: dict[str, pl.DataFrame]) -> None:
+    inconsistent = logistics["deliveries"].filter(
+        (pl.col("status") == "delivered") != pl.col("delivery_method").is_not_null()
+    )
+    assert inconsistent.height == 0
+
+
+def test_signature_parcels_deliver_via_signature(logistics: dict[str, pl.DataFrame]) -> None:
+    delivered_sig = (
+        logistics["deliveries"]
+        .filter(pl.col("status") == "delivered")
+        .join(logistics["shipments"].select("shipment_id", "signature_required"), on="shipment_id")
+        .filter(pl.col("signature_required"))
+    )
+    off_path = delivered_sig.filter(pl.col("delivery_method") != "signature")
+    assert off_path.height == 0
+
+
 def _terminal_scans(scans: pl.DataFrame) -> pl.DataFrame:
     """The last (max-``seq``) scan of every shipment — the delivery/exception row."""
     return scans.join(

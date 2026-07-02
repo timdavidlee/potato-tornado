@@ -28,12 +28,22 @@ update the matching line below in the same change.
   how `deliveries` recovers the status, so it can never disagree with the scans.
 - **Arithmetic identities.** `days_late = actual_delivery_date − promised_date` (signed, in
   days) for delivered parcels; `shipping_cost = round((base_rate + weight_kg × per_kg_rate +
-  dest_zone × 1.25) × price_multiplier, 2)`.
+  dest_zone × 1.25) × price_multiplier, 2)`. `transport_mode` and `fuel_surcharge_pct` are
+  descriptive dim attributes — **not** terms in this identity (see deliberate simplifications).
 - **Non-negativity / bounds.** `weight_kg ∈ (0, 50]`, `shipping_cost > 0`,
-  `dest_zone ∈ [1, 8]`, `attempts ∈ [1, 3]`, `seq ≥ 1`, `reliability ∈ (0, 1)`.
+  `dest_zone ∈ [1, 8]`, `attempts ∈ [1, 3]`, `seq ≥ 1`, `reliability ∈ (0, 1)`,
+  `fuel_surcharge_pct ∈ [0.08, 0.16]`, `capacity_units > 0`. `warehouses.opened_date` precedes
+  the data window's `start_date`.
+- **Last-mile method consistency.** `deliveries.delivery_method` is non-null **iff**
+  `status = 'delivered'` (null on `returned_to_sender` / `lost`, parallel to the null actual
+  date). For a delivered parcel it is `'signature'` **iff** the shipment's `signature_required`
+  is true; otherwise it is an unattended method.
 - **Catalogs are fixed.** `service_level ∈ {ground, express, overnight}`;
   `scan_type ∈ {picked_up, in_transit, out_for_delivery, delivered, exception}`;
-  `status ∈ {delivered, returned_to_sender, lost}`; `warehouses.region` from the 4-region set.
+  `status ∈ {delivered, returned_to_sender, lost}`; `warehouses.region` from the 4-region set;
+  `package_type ∈ {envelope, pak, small_box, large_box, pallet}`;
+  `carriers.transport_mode ∈ {air, ground, regional}`;
+  `deliveries.delivery_method ∈ {doorstep, locker, pickup_point, signature}` (or null).
 
 ## Distributions & mixes (should look like the real world)
 
@@ -45,6 +55,21 @@ update the matching line below in the same change.
   light, a long heavy tail.
 - **dest_zone.** Integers 1–8, weighted toward the middle (mode at zones 4–5) — most parcels
   travel a moderate distance, few very near or very far.
+- **package_type.** Weighted toward `small_box` (≈ 0.44), then `large_box` (≈ 0.22), `pak` /
+  `envelope` (≈ 0.14 each), with a thin `pallet` tail (≈ 0.06). Descriptive only — independent
+  of `weight_kg` (no correlation planted between form factor and weight).
+- **signature_required.** Boolean, overall ≈ 0.09, lifted by service tier (ground ≈ 0.05,
+  express ≈ 0.15, overnight ≈ 0.29) and by weight (≈ 0.55 for parcels ≥ 20 kg). Base 0.05 +
+  service bump + heavy bump.
+- **transport_mode / fuel_surcharge_pct.** Static per-carrier catalog attributes: 2 air / 2
+  ground / 1 regional; surcharge ≈ 0.08–0.16, higher for air carriers.
+- **capacity_units.** Lognormal per warehouse (median ≈ 45k, σ ≈ 0.55), rounded to an integer —
+  spreads hub-vs-satellite sizing; a long right tail (a few large hubs).
+- **opened_date.** Uniform in [`start_date` − 10y, `start_date` − 1y] — every facility predates
+  the data window by 1–10 years (facility-tenure cohorts).
+- **delivery_method.** On delivered parcels only: `signature` for signature-required parcels
+  (≈ 0.09), else `doorstep` ≈ 0.70 / `locker` ≈ 0.18 / `pickup_point` ≈ 0.12 of the remainder.
+  Null on non-delivered.
 - **shipping_cost.** Right-skewed via the weight tail (not a second draw): median ≈ \$12,
   p95 ≈ \$27, max past \$80. `corr(weight_kg, shipping_cost)` ≈ 0.44 — weight is one of three
   drivers (with zone and the service multiplier). See `scenarios/shipping-cost-right-skew.md`.
@@ -81,8 +106,15 @@ update the matching line below in the same change.
   labels; zone is the only distance signal.
 - **Transit is measured in calendar days** — no weekend/holiday pauses, no business-day
   arithmetic. `promised_date` can land on any day of the week.
-- **Flat `per_kg_rate`** — no dimensional/volumetric weight, fuel surcharges, customs, or
-  zone-based per-kg pricing. Cost is a clean linear identity.
+- **Flat `per_kg_rate`** — no dimensional/volumetric weight, customs, or zone-based per-kg
+  pricing. Cost is a clean linear identity. `carriers.fuel_surcharge_pct` and `transport_mode`
+  exist as descriptive covariates but are **not** folded into `shipping_cost` (landed-cost
+  analysis is left as a downstream exercise, not baked into the identity).
+- **`package_type` is independent of `weight_kg`** — a descriptive form-factor label, not a
+  driver of weight or cost; a pallet can be light, an envelope is not forced small.
+- **`delivery_method` is drawn, not caused** — the unattended-method split (doorstep / locker /
+  pickup_point) is independent of zone, carrier, or attempts; only the signature path is tied to
+  `signature_required`.
 - **Attendance-style independence.** On-time, terminal status, early/late days and attempts
   are drawn independently per shipment — no per-carrier streaks, no seasonality, no weather,
   and no dependence of status on service level or weight.

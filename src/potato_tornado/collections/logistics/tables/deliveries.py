@@ -27,6 +27,13 @@ from potato_tornado.core.collection import GenContext
 _EASY_CUM = (0.86, 0.97)
 _HARD_CUM = (0.55, 0.87)
 
+# Last-mile delivery method — only meaningful for a delivered parcel (null on
+# returned/lost, parallel to the null actual date). A signature-required parcel
+# takes the signature path; the rest split over doorstep / locker / pickup_point,
+# weighted toward doorstep.
+_UNATTENDED_METHODS = ["doorstep", "locker", "pickup_point"]
+_UNATTENDED_WEIGHTS = [0.70, 0.18, 0.12]
+
 
 def build_deliveries(ctx: GenContext) -> pl.DataFrame:
     ships = ctx.table("shipments")
@@ -44,7 +51,7 @@ def build_deliveries(ctx: GenContext) -> pl.DataFrame:
     )
 
     df = (
-        ships.select("shipment_id", "promised_date")
+        ships.select("shipment_id", "promised_date", "signature_required")
         .join(terminal, on="shipment_id", how="left")
         .with_columns(
             pl.when(pl.col("terminal_type") == SCAN_DELIVERED)
@@ -72,6 +79,15 @@ def build_deliveries(ctx: GenContext) -> pl.DataFrame:
     c2 = np.where(hard, _HARD_CUM[1], _EASY_CUM[1])
     attempts = np.where(u < c1, 1, np.where(u < c2, 2, 3))
 
+    # Last-mile method: signature parcels take the signature path, the rest split
+    # over the unattended methods; null on non-delivered parcels (no last mile).
+    sig = df["signature_required"].to_numpy()
+    unattended = ctx.rng.child("delivery_method").numpy.choice(
+        _UNATTENDED_METHODS, size=n, p=_UNATTENDED_WEIGHTS
+    )
+    method = np.where(sig, "signature", unattended)
+    delivery_method = [m if d else None for m, d in zip(method, delivered, strict=True)]
+
     return df.select(
         pl.Series("delivery_id", [f"DLV-{i:07d}" for i in range(1, n + 1)]),
         "shipment_id",
@@ -79,4 +95,5 @@ def build_deliveries(ctx: GenContext) -> pl.DataFrame:
         "actual_delivery_date",
         "days_late",
         pl.Series("attempts", attempts),
+        pl.Series("delivery_method", delivery_method, dtype=pl.Utf8),
     )

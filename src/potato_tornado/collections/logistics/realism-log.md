@@ -30,3 +30,15 @@ lattice artifact fixed; residual items are documented deliberate simplifications
 - **2026-07-02 — Field-enrichment survey.** Surveyed all five tables and wrote the candidate
   backlog (7 quick wins + 5 high-leverage, several scenario-bearing) to [`TODO.md`](TODO.md).
   No columns implemented yet — the backlog is the open work.
+- **2026-07-02 — Quick-wins enrichment (all 7 shipped).** Landed every quick-win column from
+  `TODO.md`: `shipments.package_type` (weighted toward small boxes) + `signature_required`
+  (base 0.05, lifted by service tier and weight ≥ 20 kg → overall ≈ 0.09); `carriers.transport_mode`
+  + `fuel_surcharge_pct` (static catalog attributes in `constants.CARRIERS`, **not** wired into
+  the cost identity); `warehouses.capacity_units` (lognormal, median ≈ 45k) + `opened_date`
+  (1–10 y before the window start); `deliveries.delivery_method` (signature path iff
+  `signature_required`, else doorstep/locker/pickup_point, null on non-delivered). All new draws
+  use name-keyed child streams (`package_type`, `sig`, `capacity`, `opened`, `delivery_method`)
+  so the existing cost/date identities are byte-for-byte unchanged. Reconciled
+  `realism-guidance.md` (new catalogs, bounds, the last-mile consistency invariant, mixes,
+  simplifications) and added pin tests. Scenario-bearing/high-leverage items remain open in
+  `TODO.md`.
