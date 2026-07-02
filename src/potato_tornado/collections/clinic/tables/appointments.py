@@ -29,11 +29,11 @@ _P_CANCELLED = 0.12
 # Patient hasn't built the habit of showing up yet, so they no-show markedly more
 # than an established-care visit. Additive offset on top of the lead-time term.
 _NO_SHOW_TYPE_OFFSET = {
-    "New Patient": 0.07,
+    "New Patient": 0.13,
     "Follow-up": -0.01,
     "Annual Physical": -0.01,
     "Chronic Care": -0.02,
-    "Minor Procedure": 0.0,
+    "Minor Procedure": -0.04,
     "Telehealth": -0.02,
 }
 

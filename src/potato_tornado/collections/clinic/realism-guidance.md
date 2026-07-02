@@ -39,8 +39,8 @@ update the matching line below in the same change.
   days up to ≈ 22% at 45+ days — while the marginal stays ≈ 12%. See
   `scenarios/no-show-rises-with-lead-time.md`.
 - **No-show vs. visit type.** Independent of lead time, no-show probability also shifts by
-  `visit_type`: New Patient ≈ 18% (highest), Annual Physical / Telehealth ≈ 9% (lowest),
-  Follow-up / Chronic Care / Minor Procedure ≈ 12%. See `scenarios/no-show-rate.md`.
+  `visit_type`: New Patient ≈ 20–23% (highest), Annual Physical / Minor Procedure ≈ 8–9%
+  (lowest), Follow-up / Chronic Care / Telehealth ≈ 10%. See `scenarios/no-show-rate.md`.
 - **Slot utilisation.** ≈ 68–70% of slots booked overall; per-provider ≈ 45%–92%. See
   `scenarios/provider-utilisation.md`.
 - **Visit-type mix.** Clinic-wide ≈ Follow-up 0.32 / Chronic Care 0.18 / Annual Physical 0.16
