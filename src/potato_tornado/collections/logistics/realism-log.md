@@ -42,3 +42,17 @@ lattice artifact fixed; residual items are documented deliberate simplifications
   `realism-guidance.md` (new catalogs, bounds, the last-mile consistency invariant, mixes,
   simplifications) and added pin tests. Scenario-bearing/high-leverage items remain open in
   `TODO.md`.
+- **2026-07-02 — High-leverage realism items (1 + 5 shipped).** Landed the two non-scenario
+  high-leverage columns. `scan_events.facility_type` tags each scan's network stage
+  (origin_hub / linehaul / destination_hub / local) **derived from the scan ladder + position**
+  (no fresh draw): pickup → origin hub, last `in_transit` hop → destination hub, earlier hops →
+  line-haul, last-mile scans → local, exception → local iff it reached out-for-delivery else the
+  destination hub — unlocking per-stage dwell-time analysis. `shipments.length_cm/width_cm/
+  height_cm` come from `weight_kg ÷ drawn density` split by aspect jitter (own `dims` child
+  stream), so `dim_weight = L×W×H/5000` and `billable = max(weight, dim_weight)` are derivable;
+  density median ≈ 195 (just under the 200 break-even) puts ≈ 0.5 of parcels on dimensional
+  weight, `corr(weight, dim_weight)` ≈ 0.8. Shipped **descriptive-only** — dims are *not* folded
+  into `shipping_cost`, so the pinned cost identity is byte-for-byte unchanged. Reconciled
+  `realism-guidance.md` (facility derivation rule, dim-weight-derivable note, the reworked flat-
+  rate simplification) and added pin tests. Remaining `TODO.md` high-leverage items (2/3/4) are
+  scenario-bearing → `/scenario:draft-or-propose`.

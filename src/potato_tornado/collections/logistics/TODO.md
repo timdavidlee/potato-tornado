@@ -33,8 +33,12 @@ struck through as a record of what landed:
 
 ## High-leverage additions
 
-### 1. `scan_events.facility_type`
-- [ ] Tag each scan with its network stage (`Utf8`: origin_hub / linehaul / destination_hub /
+The two realism-enrichment items (**1** and **5**) **shipped 2026-07-02** (see `realism-log.md`);
+the three scenario-bearing items (**2**, **3**, **4**) remain open and route to
+`/scenario:draft-or-propose`, not the realism command.
+
+### 1. `scan_events.facility_type` ✅ shipped
+- [x] Tag each scan with its network stage (`Utf8`: origin_hub / linehaul / destination_hub /
       local), derived from `scan_type` + `seq` position rather than a fresh draw.
 - **Unlocks:** per-stage dwell-time analysis (elapsed time between stages), where delay
   accrues in the network — a deeper cut of the existing event-log teaching value.
@@ -63,13 +67,15 @@ struck through as a record of what landed:
 - **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: margin is
   thin or negative on far zones / overnight (price doesn't fully cover distance cost).
 
-### 5. `shipments` dimensions → dimensional weight
-- [ ] Add `length_cm` / `width_cm` / `height_cm` (`Float64`, correlated with `weight_kg`), so
+### 5. `shipments` dimensions → dimensional weight ✅ shipped
+- [x] Add `length_cm` / `width_cm` / `height_cm` (`Float64`, correlated with `weight_kg`), so
       *billable weight* = `max(weight_kg, dim_weight)` is derivable.
 - **Unlocks:** the dimensional-weight pricing lever real carriers use; composes with
   `shipping_cost` and `package_type`.
-- **Class:** realism enrichment (would refine, not replace, the current cost identity — note
-  the identity in `realism-guidance.md` must be reconciled if billable weight feeds cost).
+- **Class:** realism enrichment. Shipped **descriptive-only**: dims are weight-correlated and
+  billable weight is derivable, but `shipping_cost` stays weight-based (dim weight is *not* fed
+  into the identity), so the pinned cost identity is unchanged. Reconciled in
+  `realism-guidance.md`.
 
 ## Out of scope (new table, not a field)
 
