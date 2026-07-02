@@ -8,9 +8,12 @@ stream. A subscriber can only rent a title that is **licensed in their region**
 
 from __future__ import annotations
 
+import numpy as np
 import polars as pl
 
 from potato_tornado.collections.streaming.constants import (
+    PAYMENT_METHOD_WEIGHTS,
+    PAYMENT_METHODS,
     PREMIUM_RENTAL_PRICE_WEIGHTS,
     PREMIUM_RENTAL_PRICES,
 )
@@ -18,6 +21,13 @@ from potato_tornado.core.collection import GenContext
 
 # Wide co-prime modulus for the "pick one of a short candidate list" roll.
 _ROLL_MAX = 9973
+
+# Viewer rating (1-5), left by only a minority of rentals. The rare $19.99
+# day-and-date tier rates lower than the cheaper catalogue tiers (price-expectation
+# gap). See scenarios/premium-rentals-rate-lower.md.
+_RATE_PROB = 0.40
+_RATING_MEAN_BY_PRICE = {4.99: 4.1, 6.99: 4.0, 19.99: 3.0}
+_RATING_SD = 0.8
 
 
 def build_rentals(ctx: GenContext) -> pl.DataFrame:
@@ -52,6 +62,11 @@ def build_rentals(ctx: GenContext) -> pl.DataFrame:
         len(PREMIUM_RENTAL_PRICES), size=n, p=PREMIUM_RENTAL_PRICE_WEIGHTS
     )
     rented = ctx.dist.dates_between(n, ctx.config.start_date, ctx.config.end_date)
+    # Tender used for the rental — a dedicated child stream so it doesn't reorder
+    # the subscriber / title / price / date draws above.
+    payment = ctx.rng.child("payment").numpy.choice(
+        np.asarray(PAYMENT_METHODS, dtype=object), size=n, p=PAYMENT_METHOD_WEIGHTS
+    )
 
     out_sub: list[str] = []
     out_title: list[str] = []
@@ -64,6 +79,16 @@ def build_rentals(ctx: GenContext) -> pl.DataFrame:
         out_title.append(candidates[int(title_roll[i]) % len(candidates)])
         out_price.append(PREMIUM_RENTAL_PRICES[int(price_idx[i])])
 
+    # Only a minority of rentals are rated; the score mean is keyed on the price
+    # tier via a dedicated child stream so it doesn't reorder the draws above.
+    rating_rng = ctx.rng.child("rating").numpy
+    did_rate = rating_rng.random(n) < _RATE_PROB
+    rating_mean = np.array([_RATING_MEAN_BY_PRICE[p] for p in out_price])
+    scores = np.clip(rating_rng.normal(rating_mean, _RATING_SD), 1, 5).round().astype(int)
+    rating: list[int | None] = [
+        int(s) if rated else None for s, rated in zip(scores, did_rate, strict=True)
+    ]
+
     return pl.DataFrame(
         {
             "rental_id": [f"RNT-{i:07d}" for i in range(1, n + 1)],
@@ -71,5 +96,7 @@ def build_rentals(ctx: GenContext) -> pl.DataFrame:
             "title_id": out_title,
             "rented_date": rented,
             "price": out_price,
+            "payment_method": payment,
+            "rating": rating,
         }
     )

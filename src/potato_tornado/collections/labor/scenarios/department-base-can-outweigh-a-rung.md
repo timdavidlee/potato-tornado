@@ -2,16 +2,16 @@
 
 - **Signal:** grouped by role, pay rises cleanly up the ladder (Associate →
   Manager). But that ladder is *within* a department: a promotion is worth **+18%**
-  per rung, while the department base rate spans **$21–$28 (~33%)** — a wider gap
-  than a single rung. So an **Associate in the highest-base department (Maintenance,
-  $28) out-earns a Senior Associate in the lowest-base department (Housekeeping,
-  $21)** — the more junior employee is paid more.
+  per rung, while the department base rate spans **$64–$95 (~48%)** — a wider gap
+  than a single rung. So an **Associate in the highest-base practice (Strategy &
+  Advisory, $95) out-earns a Senior Associate in the lowest-base practice (IT
+  Support Services, $64)** — the more junior employee is paid more.
 - **Tables:** `employees.hourly_rate`, `employees.role`, `employees.department_id`,
   `departments.base_hourly_rate`
 - **Magnitude:** `hourly_rate = department_base × (1 + 0.18 × role_index) × jitter`
-  (jitter ±6%, clamped). One rung ≈ ×1.18; the base spread ≈ ×1.33. Associate @
-  Maintenance ≈ **$28** vs Senior Associate @ Housekeeping ≈ **$25** — the junior
-  role wins by ~$3/hr.
+  (jitter ±6%, clamped). One rung ≈ ×1.18; the base spread ≈ ×1.48. Associate @
+  Strategy & Advisory ≈ **$95** vs Senior Associate @ IT Support Services ≈ **$75**
+  — the junior role wins by ~$20/hr.
 
 The overall "pay rises with seniority" ladder is real and monotone, but pooling
 roles across departments hides that two effects stack multiplicatively and the
@@ -32,7 +32,7 @@ select role, avg(hourly_rate) from employees group by role;   -- increases up th
 select d.name, e.role, avg(e.hourly_rate) as avg_rate
 from employees e
 join departments d using (department_id)
-where (d.name = 'Maintenance'   and e.role = 'Associate')        -- ≈ 28
-   or (d.name = 'Housekeeping'  and e.role = 'Senior Associate') -- ≈ 25
-group by d.name, e.role;                                          -- Associate row is higher
+where (d.name = 'Strategy & Advisory'  and e.role = 'Associate')        -- ≈ 95
+   or (d.name = 'IT Support Services'  and e.role = 'Senior Associate') -- ≈ 75
+group by d.name, e.role;                                                 -- Associate row is higher
 ```

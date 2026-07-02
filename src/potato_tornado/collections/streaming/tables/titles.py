@@ -12,14 +12,18 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import numpy as np
 import polars as pl
 
 from potato_tornado.collections.streaming.constants import (
     CELEBRITIES,
     GENRE_TEMPLATES,
     GENRES,
+    MATURITY_RATING_WEIGHTS,
+    MATURITY_RATINGS,
     OUTER_POSSESSIVE,
     OUTER_TEMPLATES,
+    RUNTIME_MINUTES_BY_KIND,
     TITLE_ADJECTIVES,
     TITLE_FAMILIARS,
     TITLE_KIND_WEIGHTS,
@@ -32,6 +36,12 @@ from potato_tornado.core.collection import GenContext
 # A wide co-prime modulus for the "pick one of a short list" rolls, so the choice
 # spreads evenly however long each list is.
 _ROLL_MAX = 9973
+
+# Quality score (1-10). Premium-eligible titles skew higher than the back
+# catalogue. See scenarios/premium-titles-score-higher.md.
+_AVG_RATING_BASE_MEAN = 6.3
+_AVG_RATING_PREMIUM_MEAN = 7.5
+_AVG_RATING_SD = 1.2
 
 
 def _off_genres(home_genre: str) -> list[str]:
@@ -93,6 +103,28 @@ def build_titles(ctx: GenContext) -> pl.DataFrame:
     release = ctx.dist.dates_between(
         n, ctx.config.start_date - timedelta(days=5 * 365), ctx.config.end_date
     )
+    # Runtime (minutes) is feature-length for films, one episode for series — a
+    # clamped-normal keyed on `kind`, floored so no title goes implausibly short.
+    # Maturity rating is an independent catalogue draw. Both use dedicated child
+    # streams so they don't shift the composed-name / release / premium draws.
+    runtime_means = np.array([RUNTIME_MINUTES_BY_KIND[k][0] for k in kinds])
+    runtime_sds = np.array([RUNTIME_MINUTES_BY_KIND[k][1] for k in kinds])
+    runtime = (
+        np.maximum(ctx.rng.child("runtime").numpy.normal(runtime_means, runtime_sds), 5.0)
+        .round()
+        .astype(int)
+    )
+    maturity = ctx.rng.child("maturity").numpy.choice(
+        np.asarray(MATURITY_RATINGS, dtype=object), size=n, p=MATURITY_RATING_WEIGHTS
+    )
+    # Eligible for a one-off premium rental (new/day-and-date releases). Kept the
+    # last main-stream draw so its values are unchanged; avg_rating then keys off it
+    # via a child stream — premium titles score higher.
+    is_premium = ctx.dist.bernoulli(n, 0.25)
+    rating_mean = np.where(is_premium, _AVG_RATING_PREMIUM_MEAN, _AVG_RATING_BASE_MEAN)
+    avg_rating = np.clip(
+        ctx.rng.child("avg_rating").numpy.normal(rating_mean, _AVG_RATING_SD), 1.0, 10.0
+    ).round(1)
     return pl.DataFrame(
         {
             "title_id": [f"TTL-{i:05d}" for i in range(1, n + 1)],
@@ -100,8 +132,10 @@ def build_titles(ctx: GenContext) -> pl.DataFrame:
             "lead_actor": actors,
             "genre": genres,
             "kind": kinds,
+            "runtime_minutes": runtime,
+            "maturity_rating": maturity,
             "release_date": release,
-            # Eligible for a one-off premium rental (new/day-and-date releases).
-            "is_premium": ctx.dist.bernoulli(n, 0.25),
+            "is_premium": is_premium,
+            "avg_rating": avg_rating,
         }
     )

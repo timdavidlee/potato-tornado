@@ -13,6 +13,16 @@ from datetime import date
 import polars as pl
 import pytest
 
+from potato_tornado.collections.labor.constants import (
+    BILLING_TYPES,
+    ENABLING_DEPARTMENTS,
+    INDUSTRIES,
+    LOCATIONS,
+    PROJECT_PRIORITIES,
+    ROLES,
+    SKILLS_BY_DEPARTMENT,
+    WORK_MODES,
+)
 from potato_tornado.core.config import GenerationConfig
 from potato_tornado.runner import generate
 
@@ -110,7 +120,168 @@ def test_hire_dates_are_within_window(labor: dict[str, pl.DataFrame]) -> None:
     assert labor["employees"].filter(pl.col("hire_date") >= date(2025, 1, 1)).height == 0
 
 
+def test_standard_bill_rate_exceeds_cost(labor: dict[str, pl.DataFrame]) -> None:
+    assert (
+        labor["employees"].filter(pl.col("standard_bill_rate") <= pl.col("hourly_rate")).height == 0
+    )
+
+
+def test_weekly_capacity_matches_employment_type(labor: dict[str, pl.DataFrame]) -> None:
+    expected = {"full_time": 40, "part_time": 20, "contractor": 40}
+    mismatched = labor["employees"].filter(
+        pl.col("weekly_capacity_hours")
+        != pl.col("employment_type").replace_strict(expected, return_dtype=pl.Int64)
+    )
+    assert mismatched.height == 0
+
+
+@pytest.mark.parametrize(
+    ("column", "allowed"),
+    [
+        ("industry", set(INDUSTRIES)),
+        ("billing_type", set(BILLING_TYPES)),
+        ("priority", set(PROJECT_PRIORITIES)),
+    ],
+)
+def test_project_dimensions_are_from_the_catalog(
+    labor: dict[str, pl.DataFrame], column: str, allowed: set[str]
+) -> None:
+    assert set(labor["projects"][column].to_list()) <= allowed
+
+
+def test_member_bill_rate_never_exceeds_standard_rate(labor: dict[str, pl.DataFrame]) -> None:
+    joined = labor["project_members"].join(
+        labor["employees"].select("employee_id", "standard_bill_rate"), on="employee_id"
+    )
+    out_of_band = joined.filter(
+        (pl.col("bill_rate") <= 0) | (pl.col("bill_rate") > pl.col("standard_bill_rate"))
+    )
+    assert out_of_band.height == 0
+
+
+def test_practice_type_matches_enabling_set(labor: dict[str, pl.DataFrame]) -> None:
+    expected = labor["departments"].select(
+        pl.when(pl.col("name").is_in(list(ENABLING_DEPARTMENTS)))
+        .then(pl.lit("enabling"))
+        .otherwise(pl.lit("delivery"))
+        .alias("expected")
+    )["expected"]
+    mismatched = labor["departments"].filter(labor["departments"]["practice_type"] != expected)
+    assert mismatched.height == 0
+
+
+def test_primary_skill_belongs_to_employee_department(labor: dict[str, pl.DataFrame]) -> None:
+    valid = {(dept, skill) for dept, skills in SKILLS_BY_DEPARTMENT.items() for skill in skills}
+    joined = labor["employees"].join(
+        labor["departments"].select("department_id", "name"), on="department_id"
+    )
+    pairs = set(zip(joined["name"].to_list(), joined["primary_skill"].to_list(), strict=True))
+    assert pairs <= valid
+
+
+def test_work_mode_is_from_the_catalog(labor: dict[str, pl.DataFrame]) -> None:
+    assert set(labor["employees"]["work_mode"].to_list()) <= set(WORK_MODES)
+
+
+def test_target_utilization_is_set_exactly_for_billable_staff(
+    labor: dict[str, pl.DataFrame],
+) -> None:
+    employees = labor["employees"]
+    inconsistent = employees.filter(
+        pl.col("is_billable") == pl.col("target_utilization_pct").is_null()
+    )
+    assert inconsistent.height == 0
+
+
+def test_no_show_entries_are_never_billable(labor: dict[str, pl.DataFrame]) -> None:
+    entries = labor["time_entries"]
+    assert entries.filter(pl.col("no_show") & pl.col("billable")).height == 0
+
+
+def test_project_budgets_are_positive(labor: dict[str, pl.DataFrame]) -> None:
+    assert (
+        labor["projects"]
+        .filter((pl.col("budget_hours") <= 0) | (pl.col("budget_amount") <= 0))
+        .height
+        == 0
+    )
+
+
+@pytest.mark.parametrize("column", ["actual_end_date", "client_satisfaction"])
+def test_project_outcome_fields_are_set_exactly_for_completed(
+    labor: dict[str, pl.DataFrame], column: str
+) -> None:
+    inconsistent = labor["projects"].filter(
+        (pl.col("status") == "completed") == pl.col(column).is_null()
+    )
+    assert inconsistent.height == 0
+
+
+def test_client_satisfaction_is_within_scale(labor: dict[str, pl.DataFrame]) -> None:
+    scored = labor["projects"].filter(pl.col("client_satisfaction").is_not_null())
+    out_of_range = scored.filter(
+        (pl.col("client_satisfaction") < 1) | (pl.col("client_satisfaction") > 5)
+    )
+    assert out_of_range.height == 0
+
+
 def test_scale_increases_employee_count() -> None:
     small = generate("labor", GenerationConfig(seed=1, scale=0.2))["employees"].height
     large = generate("labor", GenerationConfig(seed=1, scale=1.0))["employees"].height
     assert large > small
+
+
+def test_employee_locations_are_from_the_catalog(labor: dict[str, pl.DataFrame]) -> None:
+    assert set(labor["employees"]["location_city"].to_list()) <= set(LOCATIONS)
+
+
+def test_project_locations_are_from_the_catalog(labor: dict[str, pl.DataFrame]) -> None:
+    assert set(labor["projects"]["location_city"].to_list()) <= set(LOCATIONS)
+
+
+def test_project_department_ids_reference_departments(labor: dict[str, pl.DataFrame]) -> None:
+    dept_ids = set(labor["departments"]["department_id"].to_list())
+    assert set(labor["projects"]["department_id"].to_list()) <= dept_ids
+
+
+def test_project_target_end_is_after_start(labor: dict[str, pl.DataFrame]) -> None:
+    assert labor["projects"].filter(pl.col("target_end_date") <= pl.col("start_date")).height == 0
+
+
+def test_member_employee_ids_reference_employees(labor: dict[str, pl.DataFrame]) -> None:
+    emp_ids = set(labor["employees"]["employee_id"].to_list())
+    assert set(labor["project_members"]["employee_id"].to_list()) <= emp_ids
+
+
+def test_member_project_ids_reference_projects(labor: dict[str, pl.DataFrame]) -> None:
+    project_ids = set(labor["projects"]["project_id"].to_list())
+    assert set(labor["project_members"]["project_id"].to_list()) <= project_ids
+
+
+def test_membership_is_unique_per_project_and_employee(labor: dict[str, pl.DataFrame]) -> None:
+    members = labor["project_members"]
+    assert members.select(["project_id", "employee_id"]).n_unique() == members.height
+
+
+def test_every_project_has_exactly_one_lead(labor: dict[str, pl.DataFrame]) -> None:
+    leads = labor["project_members"].filter(pl.col("role_on_project") == "lead")
+    projects = labor["projects"]
+    assert leads.height == leads["project_id"].n_unique() == projects.height
+
+
+def test_allocation_pct_is_from_the_allowed_set(labor: dict[str, pl.DataFrame]) -> None:
+    assert set(labor["project_members"]["allocation_pct"].unique().to_list()) <= {25, 50, 75, 100}
+
+
+def test_project_lead_is_the_most_senior_member(labor: dict[str, pl.DataFrame]) -> None:
+    rung = {role: i for i, role in enumerate(ROLES)}
+    members = (
+        labor["project_members"]
+        .join(labor["employees"].select("employee_id", "role"), on="employee_id")
+        .with_columns(pl.col("role").replace_strict(rung, return_dtype=pl.Int32).alias("rung"))
+    )
+    per_project = members.group_by("project_id").agg(
+        pl.col("rung").filter(pl.col("role_on_project") == "lead").max().alias("lead_rung"),
+        pl.col("rung").max().alias("max_rung"),
+    )
+    assert per_project.filter(pl.col("lead_rung") != pl.col("max_rung")).height == 0

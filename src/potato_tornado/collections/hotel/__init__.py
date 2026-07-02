@@ -59,7 +59,7 @@ def build() -> Collection:
             TableSpec(
                 "stays",
                 build_stays,
-                depends_on=("reservations", "room_types"),
+                depends_on=("reservations", "room_types", "properties"),
                 description="Realised check-in/out for honoured reservations.",
             ),
             TableSpec(

@@ -24,12 +24,22 @@ src/potato_tornado/
                     a persisted EntityPool) + build_pool()/save/load (Parquet)
   collections/      one package per collection (see collections/CLAUDE.md):
                     <name>/{__init__ registers it, constants.py, tables/ one
-                    module per table, scenarios/ intended-signal docs}
+                    module per table, scenarios/ intended-signal docs,
+                    realism-guidance.md review rubric}
   sinks/            Sink protocol + DuckDBSink (core) and PostgresSink (extra)
   runner.py         generate() / generate_to_sink()
   cli.py            Typer app: list / describe / generate / build-pool
 tests/
 ```
+
+## Local cache
+
+`working_cache/` (git-ignored) is a scratch area for caching generated data
+locally — e.g. Parquet/DuckDB dumps from `generate`, or persisted entity pools
+you don't want to rebuild each run. It's a developer convenience only: nothing in
+it is tracked, reproducible, or a source of truth (determinism guarantees you can
+always regenerate), so never `depends_on` it or read from it in generators/tests.
+Create it on demand if it's missing.
 
 ## Conventions
 
@@ -62,14 +72,14 @@ tests/
 ## Adding a collection
 
 New package `collections/<name>/` — the full pattern (`__init__` / `constants.py`
-/ `tables/` / `scenarios/`) is documented in
+/ `tables/` / `scenarios/` / `realism-guidance.md`) is documented in
 [`collections/CLAUDE.md`](src/potato_tornado/collections/CLAUDE.md). In short:
 one `build_<table>` per table under `tables/`, assemble + `register("<name>",
 build)` in `__init__.py`, add the package path to `_BUILTIN_MODULES` in
 `core/registry.py`, write at least one `scenarios/*.md` for the signals you
-planted, and add a row to the README table. The parametrized tests in
-`tests/test_runner.py` pick it up automatically for determinism / non-empty
-checks.
+planted plus a `realism-guidance.md` review rubric, and add a row to the README
+table. The parametrized tests in `tests/test_runner.py` pick it up automatically
+for determinism / non-empty checks.
 
 ## Checks (run before finishing)
 

@@ -15,5 +15,6 @@ def build_regions(ctx: GenContext) -> pl.DataFrame:
         {
             "region": [code for code, *_ in REGIONS],
             "name": [name for _code, name, *_ in REGIONS],
+            "currency": [currency for *_, currency in REGIONS],
         }
     )

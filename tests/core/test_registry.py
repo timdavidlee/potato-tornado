@@ -8,7 +8,15 @@ from potato_tornado.core.registry import get_collection, iter_collections
 
 
 def test_builtin_collections_are_registered() -> None:
-    assert {c.name for c in iter_collections()} == {"labor", "hotel", "clinic", "streaming"}
+    assert {c.name for c in iter_collections()} == {
+        "labor",
+        "hotel",
+        "clinic",
+        "streaming",
+        "logistics",
+        "insurance",
+        "retail",
+    }
 
 
 def test_get_unknown_collection_raises() -> None:

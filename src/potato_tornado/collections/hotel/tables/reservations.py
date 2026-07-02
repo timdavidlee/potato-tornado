@@ -8,11 +8,21 @@ import numpy as np
 import polars as pl
 
 from potato_tornado.collections.hotel.constants import (
+    CANCEL_WINDOW_BETA_BY_PLAN,
     CHANNELS,
+    CHILDREN_LAMBDA_BY_SEGMENT,
+    CITY_GEO,
+    DOMESTIC_SHARE,
+    GUEST_SOURCE_COUNTRIES,
     LEAD_TIME_BY_CHANNEL,
+    MARKET_SEGMENTS,
+    RATE_PLAN_BY_CHANNEL,
+    RATE_PLAN_CANCEL_MULT,
+    RATE_PLANS,
     RES_STATUS,
     RES_STATUS_BY_CHANNEL,
     ROOM_TYPES,
+    SEGMENT_BY_CHANNEL,
 )
 from potato_tornado.core.collection import GenContext
 from potato_tornado.core.rng import Rng
@@ -53,8 +63,16 @@ def build_reservations(ctx: GenContext) -> pl.DataFrame:
     type_weights = [t[2] for t in ROOM_TYPES]
 
     room_type = ctx.dist.choice(n, type_names, type_weights)
+    property_id = ctx.dist.choice(n, props, prop_weights)
     channel = _sample_channel(ctx, room_type)
-    status = _sample_status(ctx, channel)
+    # Rate plan is drawn before status because status (cancellation) depends on it: a
+    # non-refundable Advance-Purchase booking drops off far less than a flexible BAR one.
+    rate_plan = _sample_rate_plan(ctx, channel)
+    status = _sample_status(ctx, channel, rate_plan)
+    # Demand-side axis, orthogonal to channel; then the party's family composition and the
+    # guest's origin. All three draw from their own child streams so they don't shift the
+    # existing columns' draws.
+    market_segment = _sample_segment(ctx, channel)
 
     # Draw the arrival (check-in) date seasonally, then back out the booking date from
     # the lead time — so the summer peak lands cleanly on check_in_date / occupancy.
@@ -66,6 +84,12 @@ def build_reservations(ctx: GenContext) -> pl.DataFrame:
     nights = np.clip(ctx.rng.child("nights").numpy.poisson(nights_lam) + 1, 1, 21)
     party_lam = np.array([_PARTY_LAMBDA_BY_TYPE[t] for t in room_type])
     party_size = np.clip(ctx.rng.child("party").numpy.poisson(party_lam) + 1, 1, 6)
+    # Split the party into adults + children (children keyed to segment, capped so each
+    # party keeps ≥1 adult), and draw the guest's origin from the property's country.
+    child_lam = np.array([CHILDREN_LAMBDA_BY_SEGMENT[s] for s in market_segment])
+    children = np.minimum(ctx.rng.child("children").numpy.poisson(child_lam), party_size - 1)
+    adults = party_size - children
+    guest_country = _sample_guest_country(ctx, property_id, props_df)
     booked = np.array(
         [ci - timedelta(days=int(lead)) for ci, lead in zip(check_in, lead_days, strict=True)],
         dtype=object,
@@ -74,18 +98,25 @@ def build_reservations(ctx: GenContext) -> pl.DataFrame:
         [ci + timedelta(days=int(nt)) for ci, nt in zip(check_in, nights, strict=True)],
         dtype=object,
     )
+    cancellation_date = _cancellation_dates(ctx, status, rate_plan, booked, lead_days)
 
     return pl.DataFrame(
         {
             "reservation_id": [f"RES-{i:07d}" for i in range(1, n + 1)],
-            "property_id": ctx.dist.choice(n, props, prop_weights),
+            "property_id": property_id,
             "guest_name": ctx.entities.people(n)["full_name"],
+            "guest_country": guest_country,
             "channel": channel,
+            "rate_plan": rate_plan,
+            "market_segment": market_segment,
             "room_type": room_type,
             "booked_date": booked,
             "check_in_date": check_in,
             "check_out_date": check_out,
+            "cancellation_date": cancellation_date,
             "party_size": party_size,
+            "adults": adults,
+            "children": children,
             "nights": nights,
             "status": status,
         }
@@ -103,6 +134,62 @@ def _sample_channel(ctx: GenContext, room_type: np.ndarray) -> np.ndarray:
     return np.asarray(CHANNELS, dtype=object)[idx]
 
 
+def _sample_segment(ctx: GenContext, channel: np.ndarray) -> np.ndarray:
+    """Per-row market segment weighted by channel (corporate → business, OTA → leisure)."""
+    cum_by_channel = {c: np.cumsum(w) for c, w in SEGMENT_BY_CHANNEL.items()}
+    cum = np.array([cum_by_channel[c] for c in channel])  # (n, len(MARKET_SEGMENTS))
+    u = ctx.rng.child("segment").numpy.random(channel.shape[0])
+    idx = (u[:, None] < cum).argmax(axis=1)
+    return np.asarray(MARKET_SEGMENTS, dtype=object)[idx]
+
+
+def _sample_guest_country(
+    ctx: GenContext, property_id: np.ndarray, props_df: pl.DataFrame
+) -> np.ndarray:
+    """Per-row guest origin: the property's own country with prob ``DOMESTIC_SHARE``, else a
+    weighted draw from the international feeder markets."""
+    prop_country = dict(
+        zip(
+            props_df["property_id"].to_list(),
+            [CITY_GEO[c][0] for c in props_df["city"].to_list()],
+            strict=True,
+        )
+    )
+    n = property_id.shape[0]
+    domestic = np.array([prop_country[p] for p in property_id], dtype=object)
+    intl_names = [c for c, _ in GUEST_SOURCE_COUNTRIES]
+    intl_weights = np.array([w for _, w in GUEST_SOURCE_COUNTRIES], dtype=float)
+    rng = ctx.rng.child("country").numpy
+    international = rng.choice(intl_names, size=n, p=intl_weights / intl_weights.sum())
+    is_domestic = rng.random(n) < DOMESTIC_SHARE
+    return np.where(is_domestic, domestic, international)
+
+
+def _cancellation_dates(
+    ctx: GenContext,
+    status: np.ndarray,
+    rate_plan: np.ndarray,
+    booked: np.ndarray,
+    lead_days: np.ndarray,
+) -> np.ndarray:
+    """Cancellation date for `cancelled` bookings, else None (nullable column).
+
+    The cancel lands at ``booked + f * lead_days`` where the window fraction ``f`` is
+    ``Beta(a, b)`` keyed by rate plan (`CANCEL_WINDOW_BETA_BY_PLAN`): flexible BAR cancels
+    late (``f`` near 1, close to arrival), non-refundable Advance-Purchase early. `no_show`
+    and `honoured` rows are null — a no-show never cancels.
+    """
+    a = np.array([CANCEL_WINDOW_BETA_BY_PLAN[p][0] for p in rate_plan])
+    b = np.array([CANCEL_WINDOW_BETA_BY_PLAN[p][1] for p in rate_plan])
+    frac = ctx.rng.child("cancel").numpy.beta(a, b)
+    offsets = np.floor(frac * lead_days).astype(int)
+    dates = [bk + timedelta(days=int(o)) for bk, o in zip(booked, offsets, strict=True)]
+    return np.array(
+        [d if s == "cancelled" else None for d, s in zip(dates, status, strict=True)],
+        dtype=object,
+    )
+
+
 def _sample_lead_days(ctx: GenContext, channel: np.ndarray) -> np.ndarray:
     """Per-row booking lead time, lognormal with (median, sigma) keyed by channel.
 
@@ -115,10 +202,33 @@ def _sample_lead_days(ctx: GenContext, channel: np.ndarray) -> np.ndarray:
     return np.clip(np.exp(draws), 0, 240).astype(int)
 
 
-def _sample_status(ctx: GenContext, channel: np.ndarray) -> np.ndarray:
-    """Per-row reservation status weighted by channel (drop-off concentrates in OTA)."""
-    cum_by_channel = {c: np.cumsum(w) for c, w in RES_STATUS_BY_CHANNEL.items()}
-    cum = np.array([cum_by_channel[c] for c in channel])  # (n, len(RES_STATUS))
+def _sample_rate_plan(ctx: GenContext, channel: np.ndarray) -> np.ndarray:
+    """Per-row rate plan weighted by channel (corporate → negotiated, walk_in → BAR)."""
+    cum_by_channel = {c: np.cumsum(w) for c, w in RATE_PLAN_BY_CHANNEL.items()}
+    cum = np.array([cum_by_channel[c] for c in channel])  # (n, len(RATE_PLANS))
+    u = ctx.rng.child("rate_plan").numpy.random(channel.shape[0])
+    idx = (u[:, None] < cum).argmax(axis=1)
+    return np.asarray(RATE_PLANS, dtype=object)[idx]
+
+
+def _sample_status(ctx: GenContext, channel: np.ndarray, rate_plan: np.ndarray) -> np.ndarray:
+    """Per-row reservation status weighted by channel, with the drop-off scaled by rate plan.
+
+    The base honoured/cancelled/no_show mix comes from the channel
+    (``RES_STATUS_BY_CHANNEL``); the cancel+no_show mass is then multiplied by the rate
+    plan's ``RATE_PLAN_CANCEL_MULT`` (non-refundable Advance-Purchase drops off far less),
+    the cancelled:no_show split within that mass is preserved, and honoured takes the rest.
+    So drop-off concentrates in the OTA *and* falls sharply for non-refundable plans.
+    """
+    base = np.array([RES_STATUS_BY_CHANNEL[c] for c in channel])  # (n, 3)
+    mult = np.array([RATE_PLAN_CANCEL_MULT[p] for p in rate_plan])  # (n,)
+    base_drop = base[:, 1] + base[:, 2]
+    dropoff = np.clip(base_drop * mult, 0.0, 0.95)
+    cancel_ratio = np.where(base_drop > 0, base[:, 1] / base_drop, 1.0)
+    probs = np.stack(
+        [1.0 - dropoff, dropoff * cancel_ratio, dropoff * (1.0 - cancel_ratio)], axis=1
+    )
+    cum = np.cumsum(probs, axis=1)
     u = ctx.rng.child("status").numpy.random(channel.shape[0])
     idx = (u[:, None] < cum).argmax(axis=1)
     return np.asarray(RES_STATUS, dtype=object)[idx]
