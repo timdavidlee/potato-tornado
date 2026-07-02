@@ -31,10 +31,13 @@ always produce byte-identical tables.
 
 | Collection | Tables | Teaches |
 |------------|--------|---------|
-| `labor` | `departments`, `employees`, `shifts`, `assignments`, `time_entries` | Labor assignment & utilization: plan vs. actual attendance, overtime, no-shows |
+| `labor` | `departments`, `employees`, `shifts`, `assignments`, `time_entries`, `projects`, `project_members` | Labor assignment & utilization: plan vs. actual attendance, overtime, no-shows, plus cross-functional project staffing, off-site location mix, and consulting economics (cost vs. bill rates, realization, client/industry/billing dimensions) |
 | `hotel` | `properties`, `room_types`, `reservations`, `stays`, `service_orders`, `room_upgrades`, `stay_changes`, `demand_forecast` | Reservations → actual stays, ancillary service spend & fees, room-class upgrades, stay-length amendments, forecast vs. realised occupancy |
 | `clinic` | `providers`, `patients`, `slots`, `appointments`, `visits`, `invoices` | Outpatient slot → booking → visit → billing workflow: provider slot utilisation, a no-show rate that rises with booking lead time, per-visit-type duration overrun, and self-pay-concentrated accounts receivable |
 | `streaming` | `plans`, `regions`, `actors`, `titles`, `title_availability`, `subscribers`, `subscriptions`, `rentals` | Streaming service: recurring subscriptions on a plan ladder plus one-off premium (PVOD) rentals; regional catalogue licensing (a subscriber only rents titles licensed in their region); parody titles pair a famous figure (`lead_actor`) with an off-genre show (`genre`) |
+| `logistics` | `carriers`, `warehouses`, `shipments`, `scan_events`, `deliveries` | Parcels through a carrier network: a per-shipment tracking event log (variable-length timeline, first/last scan, elapsed time) plus promised-vs-actual SLA — an on-time rate that degrades with shipping distance (zone), a weight-driven right-skewed cost tail, and a terminal delivered/returned/lost outcome recovered from the scans |
+| `insurance` | `brokers`, `policyholders`, `policies`, `claims`, `claim_payments` | Property-and-casualty book on a frequency-severity model: most policies never claim, the few that do have a heavy-tailed payout; a loss ratio (paid ÷ premium) that rises with risk tier; and an adjudication funnel (reported → approved/partial/denied → paid) surfaced by left-joining claims to payments |
+| `retail` | `customers`, `products`, `orders`, `order_items`, `returns` | Online store with a one-to-many basket fan-out (`orders` header → variable `order_items` lines, basket value = Σ line totals) and a category-dependent return funnel: return rate ranges ~2% (consumables) to ~22% (apparel), and the return-reason mix shifts by category (apparel skews fit/mind-change, electronics skews defective) |
 
 ## Using it as a library
 
@@ -61,6 +64,7 @@ Each collection is a **package** `src/potato_tornado/collections/<name>/`:
   constants.py    domain reference data / catalogs (optional)
   tables/         one module per table: build_<table>(ctx) -> polars.DataFrame
   scenarios/      markdown docs for the intended signals planted in the data
+  realism-guidance.md  review rubric: invariants, mixes, deliberate simplifications
 ```
 
 1. Write one `build_<table>` per table under `tables/`. Each takes a
@@ -73,7 +77,9 @@ Each collection is a **package** `src/potato_tornado/collections/<name>/`:
    `__init__.py`.
 3. Add the package to `_BUILTIN_MODULES` in
    [`registry.py`](src/potato_tornado/core/registry.py).
-4. Document the signals you planted in `scenarios/*.md` (the teaching "answer key").
+4. Document the signals you planted in `scenarios/*.md` (the teaching "answer key"),
+   and write `realism-guidance.md` — the review rubric of invariants, mixes, and
+   deliberate simplifications for the collection.
 
 See [`labor/`](src/potato_tornado/collections/labor) for a worked example and
 [`collections/CLAUDE.md`](src/potato_tornado/collections/CLAUDE.md) for the full

@@ -22,6 +22,9 @@ _BUILTIN_MODULES = (
     "potato_tornado.collections.hotel",
     "potato_tornado.collections.clinic",
     "potato_tornado.collections.streaming",
+    "potato_tornado.collections.logistics",
+    "potato_tornado.collections.insurance",
+    "potato_tornado.collections.retail",
 )
 _discovered = False
 

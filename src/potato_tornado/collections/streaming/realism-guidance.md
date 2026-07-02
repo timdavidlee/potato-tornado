@@ -21,6 +21,14 @@ update the matching line below in the same change.
   `start_date` equal to the subscriber's `signup_date`.
 - **Lifecycle dates.** `status = 'cancelled'` rows have a non-null `end_date` strictly after
   `start_date`; `status = 'active'` rows have a null `end_date`.
+- **Billing cadence.** `subscriptions.billing_cycle ∈ {monthly, annual}`.
+- **Cancel reason mirrors status.** `subscriptions.cancel_reason` is non-null **exactly** when
+  `status = 'cancelled'` (null for active), and non-null values come from the fixed set
+  `{price, content, technical, competitor, other}`. No third state.
+- **Acquisition channel is from the catalog.** `subscribers.acquisition_channel ∈
+  ACQUISITION_CHANNELS` (`{organic, paid_search, social, referral, partner}`).
+- **Ratings are bounded.** `titles.avg_rating ∈ [1.0, 10.0]`; `rentals.rating` is either null
+  (unrated) or an integer in `{1, 2, 3, 4, 5}`.
 - **Every title is licensed somewhere.** Each `titles.title_id` appears in
   `title_availability` for at least one region; each `(title_id, region)` pair is unique.
 - **Rentals hit premium titles.** Every `rentals.title_id` references a title with
@@ -31,6 +39,10 @@ update the matching line below in the same change.
   (`rentals` → `subscribers.region` → `title_availability`) for a title not licensed in the
   renter's region returns 0 rows.
 - **Rental price is a known price point.** `rentals.price ∈ {4.99, 6.99, 19.99}`.
+- **Plan attributes are a fixed function of tier.** From `PLANS`: Basic 1 stream / `SD` / ad-supported, Standard 2 / `HD` / ad-free, Premium 4 / `UHD` / ad-free — so `plans.max_streams ∈ {1, 2, 4}`, `plans.video_quality ∈ {SD, HD, UHD}`, and `plans.ad_supported` is true only for Basic. No jitter.
+- **Every region has a currency.** `regions.currency` is the market's ISO code from `REGIONS` (US USD, GB GBP, DE EUR, BR BRL, IN INR, JP JPY) — exactly one per region, never null.
+- **Title runtime is positive.** `titles.runtime_minutes > 0` (a clamped-normal keyed on `kind`, floored at 5 minutes), and `titles.maturity_rating ∈ MATURITY_RATINGS` (`{G, PG, PG-13, R, TV-MA}`).
+- **Categorical dimensions are from their catalogs.** `subscribers.device_platform ∈ DEVICE_PLATFORMS` (`{ios, android, web, smart_tv, roku}`) and `rentals.payment_method ∈ PAYMENT_METHODS` (`{card, paypal, gift_card, wallet}`).
 - **Title names follow the figure-in-off-genre pattern.** Every `titles.name` is a
   `<celebrity> in <show>` / `<celebrity>'s <show>` string where the celebrity is drawn from
   the `CELEBRITIES` catalogue and the show genre is never that celebrity's `home_genre`.
@@ -46,8 +58,30 @@ update the matching line below in the same change.
   region: the US draws Basic 0.18 / Standard 0.34 / Premium 0.48 (Premium modal), every other
   region draws Basic 0.34 / Standard 0.55 / Premium 0.11. See
   `scenarios/standard-is-the-most-popular-plan.md`.
-- **Subscription status.** active 0.78 / cancelled 0.22.
-- **Tenure.** Whole months ~ Poisson(6)+1, capped at 24 (right-skewed).
+- **Subscription status.** Overall ≈0.79 active / ≈0.21 cancelled — but churn is **not
+  flat**: each subscriber's cancel probability is `_BASE_CANCEL_RATE` (0.20) scaled by an
+  acquisition-channel multiplier and a billing-cadence multiplier, clipped to [0, 0.95]. So
+  cancelled-rate ladders from ≈0.10 (organic/referral) to ≈0.38 (paid_search), and ≈0.25
+  monthly vs ≈0.08 annual. See `scenarios/paid-channels-churn-faster.md` and
+  `scenarios/annual-plans-retain-better.md`.
+- **Tenure.** Whole months ~ Poisson(λ)+1, capped at 24 (right-skewed), where λ = 6 scaled by
+  the same channel/billing multipliers in the *opposite* direction — paid + monthly run short,
+  organic + annual long (cancelled mean ≈5.6 months monthly vs ≈8.6 annual). Only cancelled
+  rows expose tenure via `end_date`.
+- **Acquisition channel mix.** organic 0.34 / paid_search 0.24 / social 0.18 / referral 0.14 /
+  partner 0.10 — the acquisition dimension the churn signal cuts by.
+- **Billing cadence mix.** monthly ≈0.80 / annual ≈0.20.
+- **Cancel reason mix.** Base (per cancelled row) price 0.28 / content 0.22 / technical 0.20 /
+  competitor 0.15 / other 0.15, then reweighted by segment: `content` ×2.6 in narrow-catalogue
+  regions (JP/IN) and `price` ×2.2 on the Basic tier. Net: `content` ≈0.39 of JP/IN
+  cancellations vs ≈0.16 elsewhere; `price` ≈0.44 of Basic cancellations vs ≈0.28 on higher
+  tiers. See `scenarios/cancellation-reasons-vary-by-segment.md`.
+- **Title quality score.** `avg_rating` ~ Normal keyed on `is_premium` (premium mean 7.5,
+  non-premium 6.3, sd 1.2) clamped to [1, 10] — premium ≈7.5 vs ≈6.3. See
+  `scenarios/premium-titles-score-higher.md`.
+- **Rental rating.** ~40% of rentals are rated (the rest null); the rated score (1–5) is keyed
+  on the price tier — mean ≈4.0 at $4.99/$6.99 but ≈2.8 at the rare $19.99 tier. See
+  `scenarios/premium-rentals-rate-lower.md`.
 - **Content mix.** series 0.60 / film 0.40; ~25% of titles are premium-rental eligible.
 - **Region subscriber mix.** US 0.34 / BR 0.16 / IN 0.16 / GB 0.14 / DE 0.12 / JP 0.08.
 - **Catalogue density by region.** Per-title licensing probability: US 0.85 / GB 0.60 /
@@ -56,6 +90,14 @@ update the matching line below in the same change.
 - **Rental price mix.** The PVOD ladder is skewed, not uniform: 4.99 ≈0.42 / 6.99 ≈0.45
   (modal) / 19.99 ≈0.13 — the two cheaper tiers carry the volume and the day-and-date premium
   release stays rare.
+- **Runtime by kind.** `runtime_minutes` is feature-length for films (≈110±20 min) and a
+  single episode for series (≈45±10 min), so films run ~2.5× a series row. Floored at 5.
+- **Maturity mix.** G ≈0.08 / PG ≈0.20 / PG-13 ≈0.34 (modal) / R ≈0.20 / TV-MA ≈0.18 — flat
+  across the catalogue (drawn independently of genre/kind).
+- **Device mix.** android ≈0.26 / ios ≈0.24 / smart_tv ≈0.22 / web ≈0.18 / roku ≈0.10 —
+  mobile-heavy with a solid TV share, flat across regions and plans.
+- **Payment mix.** card ≈0.62 (dominant) / paypal ≈0.20 / wallet ≈0.10 / gift_card ≈0.08 —
+  flat across rentals (independent of price and region).
 
 ## Deliberate simplifications (intentional — do not "fix")
 
@@ -68,11 +110,14 @@ update the matching line below in the same change.
   absurd off-genre show ("Tom Cruise in Big Mama's Family") for comedic effect. The figures
   are public; the shows are fictional. The off-genre mismatch is the point — do not "correct"
   it toward the figure's real work.
-- **No viewing/watch events.** Watch sessions, ratings, and a show → season → episode
-  hierarchy are the intended expansion; only the subscription and rental revenue streams
-  exist today.
-- **Flat lifecycle.** One subscription per account, no plan upgrades/downgrades, and tenure
-  is drawn independently of plan and region — a natural future churn scenario.
+- **No viewing/watch events.** Watch sessions and a show → season → episode hierarchy are the
+  intended expansion; only the subscription and rental revenue streams exist today.
+  `titles.avg_rating` and `rentals.rating` are standalone quality/satisfaction *scores* — there
+  is no underlying rating/watch event log they roll up from.
+- **Flat lifecycle.** One subscription per account, no plan upgrades/downgrades, and a
+  subscriber's plan never changes. Churn is no longer flat — it varies by acquisition channel
+  and billing cadence (planted; see the churn scenarios) — but it does **not** depend on plan
+  or region, and `cancel_reason` is the only lifecycle field keyed off plan/region.
 - **Rentals are independent of tenure.** A subscriber can rent on any date in the window,
   regardless of whether their subscription was active then. Tightening rentals to fall
   within an active subscription window is a candidate future invariant.
@@ -84,3 +129,9 @@ update the matching line below in the same change.
   random *off-genre* show, so the eight show genres come out roughly even (each ≈0.09–0.17)
   rather than following a real catalogue's skew. The uniform draw is a by-product of the
   parody device, not a distribution to "fix".
+- **The new descriptive dimensions are drawn independently.** `subscribers.device_platform`,
+  `titles.runtime_minutes` (keyed only on `kind`), `titles.maturity_rating`, and
+  `rentals.payment_method` are flat draws with no cross-field correlation — device does not vary
+  by region or plan, maturity does not vary by genre, and payment method does not vary by price.
+  They are realism dimensions to slice by, not planted signals; a device-mix-by-region or
+  maturity-by-genre skew would be a future scenario, not a realism fix.

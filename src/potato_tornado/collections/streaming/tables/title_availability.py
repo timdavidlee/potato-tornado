@@ -21,7 +21,7 @@ def build_title_availability(ctx: GenContext) -> pl.DataFrame:
     licensed_regions: list[str] = []
     licensed_titles: list[str] = []
     region_count = [0] * n
-    for code, _name, _weight, density in REGIONS:
+    for code, _name, _weight, density, _currency in REGIONS:
         mask = ctx.dist.bernoulli(n, density)
         for i, on in enumerate(mask):
             if on:

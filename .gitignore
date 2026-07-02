@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local cache for generated data (see CLAUDE.md)
+working_cache/

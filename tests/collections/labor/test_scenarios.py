@@ -52,7 +52,31 @@ def test_night_no_show_rate_exceeds_day_rate(labor: dict[str, pl.DataFrame]) -> 
     assert rates["night"] > 2 * day_rate
 
 
-def test_kitchen_dominates_overtime_hours(labor: dict[str, pl.DataFrame]) -> None:
+def test_satellite_projects_run_more_off_site_than_the_hub(labor: dict[str, pl.DataFrame]) -> None:
+    by_city = (
+        labor["project_members"]
+        .join(
+            labor["employees"].select("employee_id", "location_city"),
+            on="employee_id",
+            how="left",
+        )
+        .join(
+            labor["projects"]
+            .select("project_id", "location_city")
+            .rename({"location_city": "project_city"}),
+            on="project_id",
+            how="left",
+        )
+        .with_columns((pl.col("location_city") != pl.col("project_city")).alias("off_site"))
+        .group_by("project_city")
+        .agg(pl.col("off_site").mean().alias("rate"))
+    )
+    rates = dict(zip(by_city["project_city"], by_city["rate"], strict=True))
+    satellite_rate = max(rates["Atlanta"], rates["Denver"])
+    assert satellite_rate > 2 * rates["New York"]
+
+
+def test_engineering_dominates_overtime_hours(labor: dict[str, pl.DataFrame]) -> None:
     worked = (
         labor["time_entries"]
         .filter(~pl.col("no_show"))
@@ -62,6 +86,8 @@ def test_kitchen_dominates_overtime_hours(labor: dict[str, pl.DataFrame]) -> Non
         )
         .with_columns((pl.col("worked_hours") - pl.col("planned_hours")).alias("overtime"))
     )
-    kitchen_overtime = float(worked.filter(pl.col("name") == "Kitchen")["overtime"].sum())
+    engineering_overtime = float(
+        worked.filter(pl.col("name") == "Software Engineering")["overtime"].sum()
+    )
     total_overtime = float(worked["overtime"].sum())
-    assert kitchen_overtime / total_overtime > 0.25
+    assert engineering_overtime / total_overtime > 0.25

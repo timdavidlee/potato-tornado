@@ -13,9 +13,14 @@ from potato_tornado.core.collection import GenContext
 # often than day shifts, so the ~4% overall rate concentrates on the night window.
 _NO_SHOW_BY_WINDOW = {"morning": 0.02, "afternoon": 0.025, "night": 0.075}
 
-# The overtime tail is driven by one department rather than spread evenly: the
-# Kitchen runs long far more often than the rest of the org.
-_OVERTIME_HEAVY_DEPT = "Kitchen"
+# The overtime tail is driven by one department rather than spread evenly:
+# Software Engineering runs long (release crunches) far more than the rest of the org.
+_OVERTIME_HEAVY_DEPT = "Software Engineering"
+
+# Probability a worked entry is billable client time, by the shift department's
+# practice type. Delivery shifts are mostly billable; enabling (PMO / IT) shifts are
+# mostly internal. An expected split — a realism mix, not a planted scenario.
+_BILLABLE_P_BY_PRACTICE = {"delivery": 0.85, "enabling": 0.20}
 
 
 def build_time_entries(ctx: GenContext) -> pl.DataFrame:
@@ -35,6 +40,13 @@ def build_time_entries(ctx: GenContext) -> pl.DataFrame:
     heavy_dept_id = dict(
         zip(departments["name"].to_list(), departments["department_id"].to_list(), strict=True)
     )[_OVERTIME_HEAVY_DEPT]
+    dept_practice = dict(
+        zip(
+            departments["department_id"].to_list(),
+            departments["practice_type"].to_list(),
+            strict=True,
+        )
+    )
 
     n = joined.height
     planned_start = joined["planned_start"].to_list()
@@ -46,14 +58,20 @@ def build_time_entries(ctx: GenContext) -> pl.DataFrame:
     no_show_p = np.array([_NO_SHOW_BY_WINDOW[w] for w in windows])
     showed_up = ctx.rng.child("attendance").numpy.random(n) >= no_show_p
     start_jitter_min = ctx.dist.normal(n, 3.0, 9.0)  # slight tendency to be a bit late
-    # Overtime: actual hours are planned + a right-skewed non-negative tail. The
-    # Kitchen draws from a heavier mean/spread, so it owns the long tail.
+    # Overtime: actual hours are planned + a right-skewed non-negative tail.
+    # Software Engineering draws from a heavier mean/spread, so it owns the long tail.
     is_heavy = np.array([d == heavy_dept_id for d in dept_ids])
     ot_mean = np.where(is_heavy, 0.6, 0.12)
     ot_sd = np.where(is_heavy, 1.3, 0.45)
     overtime = np.clip(
         ctx.rng.child("overtime").numpy.standard_normal(n) * ot_sd + ot_mean, 0, None
     )
+
+    # Billable client time vs. internal, keyed to the shift department's practice
+    # type; a no-show is never billable (no worked time). Own child stream so it
+    # doesn't shift the attendance/overtime draws.
+    billable_p = np.array([_BILLABLE_P_BY_PRACTICE[dept_practice[d]] for d in dept_ids])
+    billable = (ctx.rng.child("billable").numpy.random(n) < billable_p) & showed_up
 
     actual_in: list[datetime | None] = []
     actual_out: list[datetime | None] = []
@@ -82,5 +100,6 @@ def build_time_entries(ctx: GenContext) -> pl.DataFrame:
             "worked_hours": pl.Series(worked_hours, dtype=pl.Float64),
             "planned_hours": joined["planned_hours"],
             "no_show": pl.Series([not s for s in showed_up], dtype=pl.Boolean),
+            "billable": pl.Series(billable, dtype=pl.Boolean),
         }
     )
