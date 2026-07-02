@@ -20,6 +20,9 @@ collections/
     scenarios/
       <signal>.md   one markdown doc per intended analytical signal in the data.
     realism-guidance.md   the review rubric: plausibility rules the data must respect.
+    TODO.md         optional field-enrichment backlog written by
+                    `/data-collection:suggest-analytic-fields` — candidate columns
+                    to add later; a planning doc, not part of generation.
 ```
 
 `labor/` is the worked reference — copy its shape.

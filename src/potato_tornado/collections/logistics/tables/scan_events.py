@@ -34,9 +34,14 @@ from potato_tornado.core.collection import GenContext
 _ONTIME_BONUS = 0.03
 _ONTIME_ZONE_SLOPE = 0.024
 
-# Scans fall between the pickup morning and the terminal evening.
+# Scans fall between the pickup morning and the terminal delivery window. The
+# terminal scan lands at a per-shipment time drawn across [12:00, 20:00) rather
+# than a single fixed clock time — real deliveries arrive throughout the
+# afternoon/evening, so a fixed hour reads as synthetic. The window stays within
+# the terminal calendar day (and after the 8am pickup), so `actual_delivery_date`
+# (read as the delivered scan's date) is unchanged.
 _PICKUP_HOUR = 8
-_TERMINAL_HOUR = 18
+_DELIVERY_WINDOW_HOURS = (12, 20)
 
 
 def _extra_hops(zone: int) -> int:
@@ -88,6 +93,9 @@ def build_scan_events(ctx: GenContext) -> pl.DataFrame:
     late_days = np.clip(1 + ctx.rng.child("late").numpy.poisson(1.6, n), 1, 7)
     hub_city = ctx.entities.cities(n)
     ts_rng = ctx.rng.child("scan_ts").numpy
+    # Per-shipment terminal time-of-day (seconds past midnight) in the delivery window.
+    lo, hi = _DELIVERY_WINDOW_HOURS
+    terminal_secs = lo * 3600 + ctx.rng.child("terminal_ts").numpy.random(n) * (hi - lo) * 3600
 
     scan_ids: list[str] = []
     out_shipment: list[str] = []
@@ -105,7 +113,7 @@ def build_scan_events(ctx: GenContext) -> pl.DataFrame:
             terminal_date = promised_date[i]
 
         start = datetime.combine(ship_date[i], time(_PICKUP_HOUR))
-        end = datetime.combine(terminal_date, time(_TERMINAL_HOUR))
+        end = datetime.combine(terminal_date, time()) + timedelta(seconds=int(terminal_secs[i]))
         gap = (end - start).total_seconds() / len(scans)
         for seq, scan_type in enumerate(scans, start=1):
             if seq == len(scans):

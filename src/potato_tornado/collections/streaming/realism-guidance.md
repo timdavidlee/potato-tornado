@@ -21,6 +21,10 @@ update the matching line below in the same change.
   `start_date` equal to the subscriber's `signup_date`.
 - **Lifecycle dates.** `status = 'cancelled'` rows have a non-null `end_date` strictly after
   `start_date`; `status = 'active'` rows have a null `end_date`.
+- **Anchor-event dates fall within the window.** `subscribers.signup_date` and
+  `rentals.rented_date` lie in `[start_date, end_date)`. `titles.release_date` may predate the
+  window (back catalogue — drawn from 5 years before `start_date`), and a cancelled
+  subscription's derived `end_date` may fall *after* it (see Deliberate simplifications).
 - **Billing cadence.** `subscriptions.billing_cycle ∈ {monthly, annual}`.
 - **Cancel reason mirrors status.** `subscriptions.cancel_reason` is non-null **exactly** when
   `status = 'cancelled'` (null for active), and non-null values come from the fixed set
@@ -66,8 +70,10 @@ update the matching line below in the same change.
   `scenarios/annual-plans-retain-better.md`.
 - **Tenure.** Whole months ~ Poisson(λ)+1, capped at 24 (right-skewed), where λ = 6 scaled by
   the same channel/billing multipliers in the *opposite* direction — paid + monthly run short,
-  organic + annual long (cancelled mean ≈5.6 months monthly vs ≈8.6 annual). Only cancelled
-  rows expose tenure via `end_date`.
+  organic + annual long. Cancelled-monthly mean is stable ≈5.6 months; cancelled-annual is a
+  small, noisy sub-sample (few subscribers are both annual *and* cancelled) that runs ≈8.6 at
+  the seed=7/scale=0.5 test config but centres nearer ~10 months at full scale (annual/monthly
+  tenure ratio ~1.8×). Only cancelled rows expose tenure via `end_date`.
 - **Acquisition channel mix.** organic 0.34 / paid_search 0.24 / social 0.18 / referral 0.14 /
   partner 0.10 — the acquisition dimension the churn signal cuts by.
 - **Billing cadence mix.** monthly ≈0.80 / annual ≈0.20.
@@ -114,6 +120,12 @@ update the matching line below in the same change.
   intended expansion; only the subscription and rental revenue streams exist today.
   `titles.avg_rating` and `rentals.rating` are standalone quality/satisfaction *scores* — there
   is no underlying rating/watch event log they roll up from.
+- **Premium eligibility is independent of release recency.** `titles.is_premium` is a flat
+  Bernoulli(0.25) drawn independently of `release_date`, so a years-old back-catalogue title is
+  as likely to be rental-eligible as a brand-new one — even though "premium / day-and-date"
+  connotes a recent release. Premium share by recency is flat (≈0.25 either side of the median
+  release date). Tilting `is_premium` toward recent releases is a candidate future scenario
+  (premium titles skew new), not a realism fix — don't plant it here.
 - **Flat lifecycle.** One subscription per account, no plan upgrades/downgrades, and a
   subscriber's plan never changes. Churn is no longer flat — it varies by acquisition channel
   and billing cadence (planted; see the churn scenarios) — but it does **not** depend on plan
@@ -121,6 +133,13 @@ update the matching line below in the same change.
 - **Rentals are independent of tenure.** A subscriber can rent on any date in the window,
   regardless of whether their subscription was active then. Tightening rentals to fall
   within an active subscription window is a candidate future invariant.
+- **Cancellations can settle after the window.** A cancelled subscription's `end_date` is
+  `signup_date + tenure` and is *not* right-censored at `end_date`, so ~15–17% of
+  cancellations (long tenures on late signups) resolve past the window end — up to ~14 months
+  beyond. This mirrors the house convention for derived end-dates (hotel check-outs and labor
+  project completions likewise spill past `end_date`): the window bounds the *anchor* event
+  (signup), not the lifecycle that plays out after it. Right-censoring is a candidate future
+  refinement, not a realism fix.
 - **Rentals spread uniformly across subscribers.** The renter of each rental is drawn
   uniformly, so there is no "heavy renter" concentration (rentals/subscriber ≈ Poisson-ish,
   max a handful). Concentrating rentals in a whale minority is a candidate future scenario,

@@ -22,6 +22,13 @@ _OVERTIME_HEAVY_DEPT = "Software Engineering"
 # mostly internal. An expected split — a realism mix, not a planted scenario.
 _BILLABLE_P_BY_PRACTICE = {"delivery": 0.85, "enabling": 0.20}
 
+# Timesheet-compliance mix on worked entries: most timesheets are approved, a few
+# await review, a small tail is rejected; a small share is submitted after the
+# deadline. Flat org-wide rates — realism enrichment, not a planted scenario.
+_APPROVAL_STATES = ("approved", "pending", "rejected")
+_APPROVAL_WEIGHTS = (0.90, 0.07, 0.03)
+_SUBMITTED_LATE_P = 0.12
+
 
 def build_time_entries(ctx: GenContext) -> pl.DataFrame:
     assignments = ctx.table("assignments")
@@ -73,6 +80,17 @@ def build_time_entries(ctx: GenContext) -> pl.DataFrame:
     billable_p = np.array([_BILLABLE_P_BY_PRACTICE[dept_practice[d]] for d in dept_ids])
     billable = (ctx.rng.child("billable").numpy.random(n) < billable_p) & showed_up
 
+    # Timesheet-compliance fields: only worked entries have a timesheet to submit and
+    # approve, so both are null on no-show rows (mirrors the null-clock rule). Own
+    # child stream so the attendance/overtime/billable draws don't shift.
+    timesheet_rng = ctx.rng.child("timesheet").numpy
+    approval_draw = timesheet_rng.choice(
+        np.array(_APPROVAL_STATES, dtype=object), size=n, p=_APPROVAL_WEIGHTS
+    )
+    late_draw = timesheet_rng.random(n) < _SUBMITTED_LATE_P
+    approval_status = [str(approval_draw[i]) if showed_up[i] else None for i in range(n)]
+    submitted_late = [bool(late_draw[i]) if showed_up[i] else None for i in range(n)]
+
     actual_in: list[datetime | None] = []
     actual_out: list[datetime | None] = []
     worked_hours: list[float | None] = []
@@ -101,5 +119,7 @@ def build_time_entries(ctx: GenContext) -> pl.DataFrame:
             "planned_hours": joined["planned_hours"],
             "no_show": pl.Series([not s for s in showed_up], dtype=pl.Boolean),
             "billable": pl.Series(billable, dtype=pl.Boolean),
+            "approval_status": pl.Series(approval_status, dtype=pl.Utf8),
+            "submitted_late": pl.Series(submitted_late, dtype=pl.Boolean),
         }
     )

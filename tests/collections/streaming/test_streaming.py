@@ -64,6 +64,21 @@ def test_active_subscriptions_have_no_end_date(streaming: dict[str, pl.DataFrame
     assert active.filter(pl.col("end_date").is_not_null()).height == 0
 
 
+@pytest.mark.parametrize(
+    ("table", "column"), [("subscribers", "signup_date"), ("rentals", "rented_date")]
+)
+def test_anchor_event_dates_fall_within_the_window(
+    streaming: dict[str, pl.DataFrame], table: str, column: str
+) -> None:
+    # Anchor events (signup, rental) are drawn in [start_date, end_date); only derived
+    # dates (release_date, a cancelled sub's end_date) may fall outside it.
+    cfg = GenerationConfig()
+    out_of_window = streaming[table].filter(
+        (pl.col(column) < cfg.start_date) | (pl.col(column) >= cfg.end_date)
+    )
+    assert out_of_window.height == 0
+
+
 def test_every_title_is_licensed_somewhere(streaming: dict[str, pl.DataFrame]) -> None:
     licensed = set(streaming["title_availability"]["title_id"].to_list())
     assert set(streaming["titles"]["title_id"].to_list()) <= licensed

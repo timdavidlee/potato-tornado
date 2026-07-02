@@ -6,7 +6,7 @@
   keyed to risk tier) and *how much* it costs (a right-skew severity).
 - **Tables:** `claims.policy_id`, `claims.reported_amount`,
   `claim_payments.paid_amount`, `policies.policy_id`.
-- **Magnitude:** ≈ **12%** of policies file ≥1 claim; `reported_amount` median ≈
+- **Magnitude:** ≈ **11%** of policies file ≥1 claim; `reported_amount` median ≈
   **\$6.4k**, p95 ≈ **\$30k**, max past **\$50k** (a lognormal with σ ≈ 1.0). The
   mean sits well above the median — the hallmark of the fat tail.
 
@@ -21,7 +21,7 @@ of extreme losses, so a mean is misleading (report a median and a p95).
 
 ```sql
 -- frequency: only a minority of policies ever claim
-select count(distinct c.policy_id)::float / (select count(*) from policies) as claim_rate  -- ≈ 0.12
+select count(distinct c.policy_id)::float / (select count(*) from policies) as claim_rate  -- ≈ 0.11
 from claims c;
 
 -- severity: heavy right tail (mean >> median), long p95/max

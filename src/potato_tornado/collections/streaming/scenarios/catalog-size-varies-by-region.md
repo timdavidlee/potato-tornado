@@ -4,8 +4,9 @@
   carries most of the catalogue, Japan the least — following each region's
   licensing density.
 - **Tables:** `title_availability.region`, `title_availability.title_id`, `regions.region`
-- **Magnitude:** US ≈ 85%+ of all titles down to Japan ≈ 30%; the ordering is
-  US > DE ≈ GB > BR ≈ IN > JP.
+- **Magnitude:** US ≈ 87% of all titles down to Japan ≈ 30% — a ~2.9× gap. The
+  density ordering is US > GB > DE > BR > IN > JP (the GB/DE and BR/IN pairs are
+  near-ties that can swap under sampling noise).
 
 `title_availability` is a many-to-many licensing bridge: each title is licensed to
 a subset of regions, with larger markets licensing a bigger share of the

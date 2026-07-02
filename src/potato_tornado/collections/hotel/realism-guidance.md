@@ -116,8 +116,9 @@ update the matching line below in the same change.
   adult-only and families concentrate in leisure/group.
 - **Market segment.** The demand-side axis (`leisure` / `business` / `group`), keyed to
   channel and orthogonal to it: corporate is ≈0.78 business, the OTA ≈0.80 leisure,
-  direct/walk_in in between; group is a ≈0.10 slice everywhere. Overall roughly leisure ≈0.67
-  / business ≈0.22 / group ≈0.11.
+  direct/walk_in in between; group is a ≈0.10 slice everywhere. The overall split is an
+  emergent product of the channel mix and these per-channel weights: leisure ≈0.63 /
+  business ≈0.27 / group ≈0.10.
 - **Guest origin.** `guest_country` is the property's own country with probability ≈0.58,
   else a weighted international feeder market (UK, Germany, France, US, …); the observed
   domestic share lands ≈0.61 (a little above 0.58 because a feeder draw can coincide with the
@@ -201,9 +202,30 @@ update the matching line below in the same change.
 - **`star_rating` is independent of rate.** The per-property star rating is drawn on its own
   and does *not* feed `nightly_rate`, so ADR won't correlate with stars. (A star-rating rate
   premium is a strong candidate to promote into a new scenario — deliberately not wired here.)
+- **`review_score` is independent of property / star_rating.** `μ` keys only off the stay
+  outcome (early checkout / extension) and channel, not the property or its stars, so mean
+  review is flat across properties (≈4.07–4.11) and across the 3★/4★ split — the per-stay
+  `Normal(μ, 0.8)` scatter is real, but there is no property or star-quality effect. (A
+  star-rating review premium is a candidate to promote into a new scenario, alongside the
+  star-rating rate premium above — deliberately not wired here.)
 - **`party_size` isn't capped by the room's `max_occupancy`.** Party size is drawn from room
   *class* λ, not the room's rated capacity, so a minority of parties exceed `max_occupancy`
   (e.g. a 3-guest Standard booking) — an over-occupancy / upsell hook to slice on, not a bug.
+- **No year-over-year trend.** Arrivals are drawn from a day-of-*year* season only, with no
+  multi-year growth or decline term, so booking volume is flat across the window's three
+  calendar years (each carries ≈1/3 of check-ins) apart from the summer/winter cycle that
+  repeats identically each year. Real hotels grow or shrink year to year; here the level holds.
+  (A YoY demand trend is a candidate to promote into a new scenario — deliberately not wired.)
+- **The class rate ladder is identical across properties.** `nightly_rate = base ×
+  location_multiplier` applies **one** per-property multiplier to all four classes, so the
+  *relative* ladder (e.g. Deluxe/Standard ≈1.53, Penthouse/Standard ≈5.05) is the same at every
+  property — properties differ in overall price level, not in how steeply they price the ladder.
+  Real chains vary their class-pricing power by property. (Per-property class-pricing spread is
+  a candidate to promote into a new scenario — deliberately not wired here.)
+- **Service `amount` is whole-dollar.** The `service_orders` menu carries fixed whole-dollar
+  unit prices (Breakfast $18, Spa $75, …), so `amount = unit_price × quantity` takes only ~25
+  distinct round values with no cents — a fixed price list, not a synthetic lattice. (Per-line
+  `unit_cost` *does* carry jittered cents; the guest-facing `amount` is deliberately clean.)
 
 ## How to review
 
@@ -225,4 +247,9 @@ where f.actual_occupied_rooms > p.total_rooms;              -- expect 0
 -- room revenue reconciles: expect 0 mismatches
 select count(*) from stays
 where round(nightly_rate * actual_nights, 2) <> room_revenue;  -- expect 0
+
+-- check-ins spread evenly across the three calendar years (flat YoY, no growth trend)
+select extract(year from check_in_date) as yr,
+       count(*) * 1.0 / sum(count(*)) over () as share
+from reservations group by yr order by yr;                     -- each ≈ 0.33
 ```
