@@ -38,6 +38,9 @@ update the matching line below in the same change.
 - **No-show vs. lead time.** No-show probability rises with `lead_days` — ≈ 9–10% under 15
   days up to ≈ 22% at 45+ days — while the marginal stays ≈ 12%. See
   `scenarios/no-show-rises-with-lead-time.md`.
+- **No-show vs. visit type.** Independent of lead time, no-show probability also shifts by
+  `visit_type`: New Patient ≈ 18% (highest), Annual Physical / Telehealth ≈ 9% (lowest),
+  Follow-up / Chronic Care / Minor Procedure ≈ 12%. See `scenarios/no-show-rate.md`.
 - **Slot utilisation.** ≈ 71% of slots booked overall; per-provider ≈ 49%–90%. See
   `scenarios/provider-utilisation.md`.
 - **Visit-type mix.** Follow-up 0.30 / Chronic Care 0.20 / Annual Physical 0.18 / New Patient

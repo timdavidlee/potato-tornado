@@ -31,7 +31,9 @@ def build_demand_forecast(ctx: GenContext) -> pl.DataFrame:
             actual = occupancy.get((pid, day), 0)
             actual = min(actual, total_rooms)
             # Forecast is the actual perturbed by noise (imperfect foresight).
-            forecast = int(np.clip(round(actual * rng.normal(1.0, 0.12)), 0, total_rooms))
+            # Weekend demand is harder to call, so it carries a wider error band.
+            sd = 0.22 if day.weekday() >= 5 else 0.09
+            forecast = int(np.clip(round(actual * rng.normal(1.0, sd)), 0, total_rooms))
             rows_prop.append(pid)
             rows_date.append(day)
             rows_actual.append(actual)

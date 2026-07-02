@@ -58,6 +58,19 @@ teaching "answer key": the no-show rate, the right-skewed overtime tail, the OTA
 channel dominance. If a generator tunes a distribution to make a point, that point
 gets a scenario doc.
 
+**A scenario is an unexpected insight, usually about a subset of the data** — a
+room class, a shift window, a region, a slice — not a fact that's simply true of
+the dataset as a whole. "Night shifts no-show at 2x the day rate" is a scenario;
+"no-shows happen sometimes" is not. A flat, expected fact about the whole table —
+an invariant, a referential rule, a top-line mix or magnitude with no surprising
+segment behind it — is a realism fact, not a scenario: it belongs in
+`realism-guidance.md`'s Invariants or Distributions & mixes section instead. The
+test: would a student be *surprised* by this, or would they simply expect the
+data to look this way? Surprise is the bar. (A mix can still anchor a scenario if
+the interesting part is how it inverts or concentrates in a slice — e.g. the
+overall channel split flipping for upper-tier rooms — not the top-line number
+alone.)
+
 **Docs come first, code second.** Today scenarios are markdown only — the source
 of truth. The planned next step is typed `Scenario` objects (name, signal,
 tables, an optional `check(frames) -> bool` that verifies the signal holds on

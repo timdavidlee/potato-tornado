@@ -23,8 +23,9 @@ update the matching line below in the same change.
   `nightly_rate = base × location_multiplier` with a 0.7× floor, so rates stay positive and
   keep the Standard < Deluxe < Suite < Penthouse ordering.
 - **Occupancy is bounded.** `demand_forecast.actual_occupied_rooms ≤ total_rooms`; forecast
-  is the actual perturbed by noise and clipped to `[0, total_rooms]`; exactly one row per
-  property per day across the config span.
+  is the actual perturbed by multiplicative noise (Normal(1.0, `sd`) with `sd`=0.09 on
+  weekdays, 0.22 on weekends) and clipped to `[0, total_rooms]`; exactly one row per property
+  per day across the config span.
 - **Service orders sit inside their stay.** Each `service_orders` row references a real
   `stay_id`, its `service_date` falls within the stay, and
   `amount = unit_price × quantity`.
@@ -45,7 +46,11 @@ update the matching line below in the same change.
 
 ## Distributions & mixes (should look like the real world)
 
-- **Channel mix.** ota 0.44 (largest) / direct 0.34 / corporate 0.16 / walk_in 0.06.
+- **Channel mix.** Overall ota ≈0.43 (largest) / direct ≈0.34 / corporate ≈0.17 / walk_in
+  ≈0.06, but keyed to room class: upper tiers (Suite/Penthouse) draw direct 0.55 / ota 0.22 /
+  corporate 0.18 / walk_in 0.05, lower tiers direct 0.28 / ota 0.50 / corporate 0.16 /
+  walk_in 0.06 — so direct is modal for the upper tiers. See
+  `scenarios/ota-is-the-largest-channel.md`.
 - **Room-type mix & rate ladder.** Standard 0.55 ($95) → Deluxe 0.28 ($145) → Suite 0.12
   ($260) → Penthouse 0.05 ($480), before the per-property location multiplier.
 - **Reservation status.** honoured 0.82 / cancelled 0.14 / no_show 0.04.
@@ -67,11 +72,13 @@ update the matching line below in the same change.
 
 - Six properties, one per city, capped at the `CITIES` catalog length.
 - The forecast is `actual × noise` with **no systematic bias** (it tracks actual by
-  construction) and no real forecasting model — see `scenarios/forecast-tracks-actual-with-error.md`.
-- **No seasonality or weekday/weekend rate variation** — nightly rates are flat over the
-  calendar. (A strong candidate to promote into a new scenario.)
-- Status, channel, and room type are drawn independently — no channel-driven cancellation or
-  room-mix effects.
+  construction, only the error *magnitude* varies by weekday/weekend) and no real forecasting
+  model — see `scenarios/forecast-tracks-actual-with-error.md`.
+- **No seasonality or weekday/weekend rate variation** — nightly *rates* are flat over the
+  calendar (only the forecast error band varies by weekend, not price). (A strong candidate to
+  promote into a new scenario.)
+- Status and room type are drawn independently, and channel depends only on room class (no
+  channel-driven cancellation effects).
 - Guests are not deduplicated: every reservation is a fresh name, so there is no
   repeat-guest / loyalty signal.
 - Recurring fees (Internet, Television, Parking) are modeled as discretionary
