@@ -25,6 +25,12 @@ _SEVERITY_MEDIAN = 6000.0
 _SEVERITY_SIGMA = 1.0
 _DAYS_PER_MONTH = 30.4
 
+# FNOL (first-notice-of-loss) channel the claim came in on — a realism dimension drawn
+# independently of peril/severity (no signal planted), off its own child stream so the
+# existing peril/status draws stay byte-identical. Single-table literals.
+_REPORTED_CHANNELS = ["phone", "app", "broker", "web"]
+_REPORTED_CHANNEL_WEIGHTS = [0.40, 0.20, 0.25, 0.15]
+
 
 def build_claims(ctx: GenContext) -> pl.DataFrame:
     policies = ctx.table("policies")
@@ -88,5 +94,10 @@ def build_claims(ctx: GenContext) -> pl.DataFrame:
             "reported_amount": reported_amount,
             "status": ctx.dist.choice(total, _STATUSES, _STATUS_WEIGHTS),
             "adjuster_id": [adjuster_ids[i] for i in adjuster_idx],
+            "reported_channel": ctx.rng.child("reported_channel").numpy.choice(
+                np.asarray(_REPORTED_CHANNELS, dtype=object),
+                size=total,
+                p=_REPORTED_CHANNEL_WEIGHTS,
+            ),
         }
     )

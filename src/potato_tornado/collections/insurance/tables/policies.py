@@ -25,6 +25,17 @@ _STATUSES = ["active", "lapsed", "cancelled"]
 _STATUS_WEIGHTS = [0.82, 0.12, 0.06]
 _PREMIUM_SIGMA = 0.40
 
+# Billing cadence, distribution channel, and auto-renew posture — realism dimensions
+# drawn independently of premium/tier (no signal planted), each off its own child
+# stream so the existing premium/date/status draws stay byte-identical. `channel` is a
+# bought-vs-sold cut alongside `broker_id` (populated on every policy for join practice,
+# so `channel = direct` does not imply a null broker). Single-table literals.
+_PAYMENT_FREQUENCIES = ["monthly", "quarterly", "annual"]
+_PAYMENT_FREQUENCY_WEIGHTS = [0.55, 0.15, 0.30]
+_CHANNELS = ["broker", "direct", "aggregator"]
+_CHANNEL_WEIGHTS = [0.50, 0.30, 0.20]
+_AUTO_RENEW_P = 0.70
+
 # Small underwriting nudges: premium rises with the chosen coverage step and falls as
 # the deductible rises (the insured retains more risk). Both are centred on their
 # weighted mean so the per-tier premium medians are unchanged — the effect is a weak
@@ -78,19 +89,36 @@ def build_policies(ctx: GenContext) -> pl.DataFrame:
 
     coverage_limit = np.array([coverage_base_of[p] for p in product]) * coverage_step
 
+    # Bundled: derivable, no draw — true when the holder appears on ≥2 policies rows
+    # (holders average ~1.75 policies, so the multi-policy structure already exists).
+    _uniq, inverse, holder_counts = np.unique(
+        policyholder_id, return_inverse=True, return_counts=True
+    )
+    bundled = holder_counts[inverse] >= 2
+
     return pl.DataFrame(
         {
             "policy_id": [f"POL-{i:07d}" for i in range(1, n + 1)],
             "policyholder_id": policyholder_id,
             "broker_id": ctx.dist.choice(n, broker_ids),
+            "channel": ctx.rng.child("channel").numpy.choice(
+                np.asarray(_CHANNELS, dtype=object), size=n, p=_CHANNEL_WEIGHTS
+            ),
             "product": product,
             "start_date": ctx.dist.dates_between(n, ctx.config.start_date, ctx.config.end_date),
             "term_months": ctx.dist.choice(n, [str(t) for t in _TERM_MONTHS], _TERM_WEIGHTS).astype(
                 int
             ),
+            "payment_frequency": ctx.rng.child("payment_frequency").numpy.choice(
+                np.asarray(_PAYMENT_FREQUENCIES, dtype=object),
+                size=n,
+                p=_PAYMENT_FREQUENCY_WEIGHTS,
+            ),
             "annual_premium": annual_premium,
             "coverage_limit": np.round(coverage_limit, 2),
             "deductible": deductible,
             "status": ctx.dist.choice(n, _STATUSES, _STATUS_WEIGHTS),
+            "bundled": bundled,
+            "auto_renew": ctx.rng.child("auto_renew").numpy.random(size=n) < _AUTO_RENEW_P,
         }
     )

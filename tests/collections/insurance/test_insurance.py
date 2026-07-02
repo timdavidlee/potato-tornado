@@ -208,3 +208,109 @@ def test_quote_conversion_rate_near_target(insurance: dict[str, pl.DataFrame]) -
     quotes = insurance["quotes"]
     rate = quotes.filter(pl.col("converted")).height / quotes.height
     assert 0.38 < rate < 0.42
+
+
+# -- Enrichment columns (quick-win realism fields) --------------------------------
+
+
+@pytest.mark.parametrize(
+    ("table", "column", "catalog"),
+    [
+        ("policyholders", "age_band", {"18-25", "26-40", "41-60", "60+"}),
+        ("policies", "channel", {"broker", "direct", "aggregator"}),
+        ("policies", "payment_frequency", {"monthly", "quarterly", "annual"}),
+        ("claims", "reported_channel", {"phone", "app", "broker", "web"}),
+        ("premium_billing", "status", {"paid", "late", "missed"}),
+    ],
+)
+def test_enrichment_column_in_catalog(
+    insurance: dict[str, pl.DataFrame], table: str, column: str, catalog: set[str]
+) -> None:
+    assert set(insurance[table][column].to_list()) <= catalog
+
+
+def test_policyholder_state_is_a_two_letter_code(insurance: dict[str, pl.DataFrame]) -> None:
+    states = insurance["policyholders"]["state"]
+    assert states.filter(states.str.len_chars() != 2).len() == 0
+
+
+def test_policyholder_tenure_years_in_range(insurance: dict[str, pl.DataFrame]) -> None:
+    tenure = pl.col("tenure_years")
+    out_of_range = insurance["policyholders"].filter((tenure < 0) | (tenure > 15))
+    assert out_of_range.height == 0
+
+
+def test_broker_tenure_years_is_positive(insurance: dict[str, pl.DataFrame]) -> None:
+    assert insurance["brokers"].filter(pl.col("tenure_years") < 1).height == 0
+
+
+def test_broker_commission_rate_in_band(insurance: dict[str, pl.DataFrame]) -> None:
+    rate = pl.col("commission_rate")
+    out_of_band = insurance["brokers"].filter((rate < 0.08) | (rate > 0.15))
+    assert out_of_band.height == 0
+
+
+def test_bundled_iff_holder_has_multiple_policies(insurance: dict[str, pl.DataFrame]) -> None:
+    policies = insurance["policies"]
+    expected = policies.with_columns(
+        (pl.col("policy_id").count().over("policyholder_id") >= 2).alias("expected")
+    )
+    assert expected.filter(pl.col("bundled") != pl.col("expected")).height == 0
+
+
+# -- premium_billing (instalment schedule) ----------------------------------------
+
+
+def test_premium_billing_references_policies(insurance: dict[str, pl.DataFrame]) -> None:
+    policy_ids = set(insurance["policies"]["policy_id"].to_list())
+    assert set(insurance["premium_billing"]["policy_id"].to_list()) <= policy_ids
+
+
+def test_installments_sum_to_annual_premium(insurance: dict[str, pl.DataFrame]) -> None:
+    billed = (
+        insurance["premium_billing"]
+        .group_by("policy_id")
+        .agg(pl.col("amount").sum().alias("billed"))
+    )
+    diff = billed.join(
+        insurance["policies"].select("policy_id", "annual_premium"), on="policy_id"
+    ).with_columns((pl.col("billed") - pl.col("annual_premium")).abs().alias("diff"))
+    assert diff.filter(pl.col("diff") > 0.01).height == 0
+
+
+def test_installment_count_matches_payment_frequency(insurance: dict[str, pl.DataFrame]) -> None:
+    expected = {"monthly": 12, "quarterly": 4, "annual": 1}
+    counts = (
+        insurance["premium_billing"]
+        .group_by("policy_id")
+        .len()
+        .join(insurance["policies"].select("policy_id", "payment_frequency"), on="policy_id")
+        .with_columns(
+            pl.col("payment_frequency")
+            .replace_strict(expected, return_dtype=pl.UInt32)
+            .alias("exp")
+        )
+    )
+    assert counts.filter(pl.col("len") != pl.col("exp")).height == 0
+
+
+def test_premium_billing_amount_is_positive(insurance: dict[str, pl.DataFrame]) -> None:
+    assert insurance["premium_billing"].filter(pl.col("amount") <= 0).height == 0
+
+
+def test_paid_date_null_iff_installment_missed(insurance: dict[str, pl.DataFrame]) -> None:
+    billing = insurance["premium_billing"]
+    mismatched = billing.filter((pl.col("status") == "missed") != pl.col("paid_date").is_null())
+    assert mismatched.height == 0
+
+
+def test_installment_due_date_on_or_after_policy_start(insurance: dict[str, pl.DataFrame]) -> None:
+    dated = insurance["premium_billing"].join(
+        insurance["policies"].select("policy_id", "start_date"), on="policy_id"
+    )
+    assert dated.filter(pl.col("due_date") < pl.col("start_date")).height == 0
+
+
+def test_installment_paid_date_on_or_after_due_date(insurance: dict[str, pl.DataFrame]) -> None:
+    paid = insurance["premium_billing"].filter(pl.col("paid_date").is_not_null())
+    assert paid.filter(pl.col("paid_date") < pl.col("due_date")).height == 0

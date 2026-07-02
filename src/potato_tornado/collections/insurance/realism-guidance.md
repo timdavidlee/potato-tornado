@@ -29,18 +29,33 @@ update the matching line below in the same change.
 - **Non-negativity / ordering.** `reported_amount > 0`, `annual_premium > 0`,
   `deductible ≥ 0`, `coverage_limit > deductible`, `term_months ∈ {6, 12}`.
 - **Catalogs are fixed.** `policyholders.risk_tier ∈ {preferred, standard, high_risk}`;
-  `policies.product ∈ {auto, home, renters}`; `claims.peril ∈ PERILS`;
+  `policyholders.age_band ∈ {18-25, 26-40, 41-60, 60+}`; `policyholders.state` is a
+  2-letter USPS code (50 states + DC); `policies.product ∈ {auto, home, renters}`;
+  `policies.channel ∈ {broker, direct, aggregator}`;
+  `policies.payment_frequency ∈ {monthly, quarterly, annual}`; `claims.peril ∈ PERILS`;
   `claims.status ∈ {open, approved, partial, denied}`;
+  `claims.reported_channel ∈ {phone, app, broker, web}`;
   `policies.status ∈ {active, lapsed, cancelled}`;
   `adjusters.team ∈ {auto, property, liability, catastrophe}`;
   `adjusters.seniority ∈ {junior, senior, lead}`; `quotes.product ∈ {auto, home, renters}`.
+- **Bounded enrichment ranges.** `policyholders.tenure_years ∈ [0, 15]`;
+  `brokers.tenure_years ∈ [1, 30]`; `brokers.commission_rate ∈ [0.08, 0.15]`.
+- **Bundled is derived.** `policies.bundled` is true **iff** the holder appears on ≥2
+  `policies` rows — a computed flag, not a draw.
+- **Instalments reconcile.** `premium_billing.policy_id ∈ policies`; a policy has exactly
+  `{monthly: 12, quarterly: 4, annual: 1}` instalments per its `payment_frequency`, and those
+  instalments **sum to `annual_premium`** (to the cent). `amount > 0`;
+  `due_date ≥ policies.start_date`; `paid_date` is null **iff** `status = missed`, and non-null
+  `paid_date ≥ due_date`; `status ∈ {paid, late, missed}`.
 
 ## Distributions & mixes (should look like the real world)
 
 - **Row counts (`scale=1.0`).** `brokers` = 40, `adjusters` = 40, `policyholders` = 4000,
-  `policies` = 5000 (a holder may hold more than one), `quotes` = 12,500 (one converting quote
-  per policy + non-converting; conversion ≈ 0.40), `claims` ≈ 620 (frequency-derived, ~11% of
-  policies), `claim_payments` ≈ 490 (~79% of claims — the settled share).
+  `policies` = 5000 (a holder may hold more than one), `premium_billing` ≈ 37,600 (one row per
+  instalment: monthly×12 / quarterly×4 / annual×1 over the policies), `quotes` = 12,500 (one
+  converting quote per policy + non-converting; conversion ≈ 0.40), `claims` ≈ 620
+  (frequency-derived, ~11% of policies), `claim_payments` ≈ 490 (~79% of claims — the settled
+  share).
 - **Adjuster assignment.** Each claim's `adjuster_id` is drawn **uniformly** over the 40
   adjusters — no per-adjuster load or performance signal (mirrors `broker_id`). `team` ≈ auto
   0.40 / property 0.30 / liability 0.20 / catastrophe 0.10; `seniority` ≈ junior 0.50 / senior
@@ -51,6 +66,22 @@ update the matching line below in the same change.
   (product, premium) off a random policy, so the `quoted_premium` marginals match.
 - **Risk-tier mix.** preferred 0.45 / standard 0.40 / high_risk 0.15.
 - **Product mix.** auto 0.50 / home 0.30 / renters 0.20.
+- **Holder demographics.** `age_band` ≈ 18-25 0.12 / 26-40 0.30 / 41-60 0.33 / 60+ 0.25;
+  `tenure_years` uniform integer over [0, 15]; `state` population-weighted over the 50 states +
+  DC (CA / TX / FL / NY the modes). All three are independent of `risk_tier` — slicing
+  frequency/severity by them yields flat cuts (see Deliberate simplifications).
+- **Policy attributes.** `channel` ≈ broker 0.50 / direct 0.30 / aggregator 0.20;
+  `payment_frequency` ≈ monthly 0.55 / quarterly 0.15 / annual 0.30; `auto_renew` ≈ **0.70**
+  true (Bernoulli); `bundled` ≈ **0.71** of policies true (scale-independent — it follows the
+  fixed 5000/4000 policy-per-holder ratio: `1 − e^(−1.25) ≈ 0.71`). All independent of
+  premium/tier.
+- **Broker attributes.** `tenure_years` uniform integer over [1, 30]; `commission_rate`
+  uniform over [0.08, 0.15]. Both signal-free (no producer-performance coupling).
+- **Claim FNOL channel.** `reported_channel` ≈ phone 0.40 / broker 0.25 / app 0.20 / web 0.15,
+  independent of peril and severity.
+- **Billing outcome mix.** `premium_billing.status` ≈ paid 0.90 / late 0.07 / missed 0.03 —
+  a low, flat delinquency rate drawn independently of policy, tier, and cadence (no
+  concentration). On-time payments land within 3 days of `due_date`, late ones 7–40 days after.
 - **annual_premium.** Lognormal (σ ≈ 0.4) whose median is the product base × tier multiplier,
   then nudged by the policy's coverage step and deductible (see next line) — median ≈
   **preferred \$850 / standard \$1,195 / high_risk \$2,070**. Right-skew within each tier.
@@ -95,7 +126,13 @@ update the matching line below in the same change.
   adjudicated once to a single terminal status.
 - **Premium is a flat annual figure** — no mid-term endorsements, no proration on
   cancel/lapse. `policies.status` (active/lapsed/cancelled) carries no premium or date
-  adjustment; a lapsed policy still shows its full `annual_premium`.
+  adjustment; a lapsed policy still shows its full `annual_premium`. `premium_billing`
+  **decomposes** that annual figure into instalments (which sum back to it) but does not change
+  it — the schedule is a billing calendar, not a re-rating.
+- **Billing delinquency carries no signal** — `premium_billing.status` is drawn independently
+  of the policy, its tier, and its `payment_frequency`, so the missed/late rate is flat across
+  every slice. A delinquency that concentrates (e.g. monthly-pay or high_risk policies miss
+  more) is a candidate scenario, not planted here.
 - **"Loss ratio" is pure paid ÷ premium** — no reinsurance, expenses, commissions, or
   investment income. It is a teaching ratio, not a GAAP combined ratio.
 - **Severity and peril are independent** of policyholder geography, vehicle/home specifics,
@@ -106,7 +143,14 @@ update the matching line below in the same change.
   arithmetic legible.
 - **`broker_id` and `region` carry no signal** — brokers don't influence premium, claim
   frequency, or loss ratio; the broker dim exists for join practice, not a producer-performance
-  scenario (a natural future addition).
+  scenario (a natural future addition). `broker.commission_rate` and `broker.tenure_years` are
+  likewise inert producer attributes.
+- **Enrichment covariates carry no signal** — `policyholders.age_band` / `tenure_years` /
+  `state`, `policies.channel` / `payment_frequency` / `auto_renew`, and
+  `claims.reported_channel` are all drawn independently of frequency, severity, premium, and
+  the adjudication outcome. They exist for slicing and joins, so any cut by them is flat; a
+  demographic or channel-driven signal is a candidate scenario, not planted here. (`bundled` is
+  derived from the multi-policy structure, so it is real but signal-free.)
 - **`adjuster_id` carries no signal** — assignment is uniform, so settlement time, partial rate,
   and caseload are flat across adjusters and teams. The dim is for join/rollup practice; a
   handler-level performance outlier is a candidate scenario, not planted here.
