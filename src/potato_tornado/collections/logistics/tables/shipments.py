@@ -37,6 +37,18 @@ _SIG_SERVICE_BUMP = {"ground": 0.0, "express": 0.10, "overnight": 0.25}
 _SIG_HEAVY_KG = 20.0
 _SIG_HEAVY_BUMP = 0.20
 
+# Parcel dimensions. A parcel's volume is set by its weight and a drawn packing
+# density (kg/m³): median ≈ 195, just under the carrier dim-factor break-even of 200
+# (= 1e6 cm³/m³ / 5000), so a sizeable minority of light-but-bulky parcels bill by
+# dimensional weight (`L*W*H / 5000`) rather than actual weight. The volume is split
+# into three edges with an aspect jitter. Descriptive only — billable weight is
+# derivable but NOT folded into `shipping_cost` (the cost identity stays weight-based).
+_DIM_FACTOR = 5000.0
+_DENSITY_MEDIAN = 195.0
+_DENSITY_SIGMA = 0.45
+_ASPECT_LOW = 0.75
+_ASPECT_HIGH = 1.35
+
 
 def build_shipments(ctx: GenContext) -> pl.DataFrame:
     n = ctx.n(8000)
@@ -85,6 +97,17 @@ def build_shipments(ctx: GenContext) -> pl.DataFrame:
     )
     signature_required = ctx.rng.child("sig").numpy.random(n) < p_sig
 
+    # Dimensions from weight / drawn density, split into three edges by aspect jitter.
+    # Height closes the volume so `L*W*H ≈ weight/density * 1e6` — billable weight
+    # (max of actual and dimensional) is derivable downstream. Own child stream.
+    dims_rng = ctx.rng.child("dims").numpy
+    density = dims_rng.lognormal(np.log(_DENSITY_MEDIAN), _DENSITY_SIGMA, n)
+    volume_cm3 = weight_kg / density * 1e6
+    edge = np.cbrt(volume_cm3)
+    length = edge * dims_rng.uniform(_ASPECT_LOW, _ASPECT_HIGH, n)
+    width = edge * dims_rng.uniform(_ASPECT_LOW, _ASPECT_HIGH, n)
+    height = volume_cm3 / (length * width)
+
     return pl.DataFrame(
         {
             "shipment_id": [f"SHP-{i:07d}" for i in range(1, n + 1)],
@@ -96,6 +119,9 @@ def build_shipments(ctx: GenContext) -> pl.DataFrame:
             "weight_kg": weight_kg,
             "package_type": package_type,
             "signature_required": signature_required,
+            "length_cm": np.round(length, 1),
+            "width_cm": np.round(width, 1),
+            "height_cm": np.round(height, 1),
             "shipping_cost": shipping_cost,
             "ship_date": ship_date,
             "promised_date": promised_date,

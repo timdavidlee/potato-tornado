@@ -43,12 +43,44 @@ _ONTIME_ZONE_SLOPE = 0.024
 _PICKUP_HOUR = 8
 _DELIVERY_WINDOW_HOURS = (12, 20)
 
+# Network stage each scan sits in, derived from the scan ladder (not a fresh draw):
+# pickup at the origin facility, line-haul between hubs, arrival at the destination
+# hub (the last in_transit hop), and the local last-mile leg.
+_FAC_ORIGIN_HUB = "origin_hub"
+_FAC_LINEHAUL = "linehaul"
+_FAC_DEST_HUB = "destination_hub"
+_FAC_LOCAL = "local"
+
 
 def _extra_hops(zone: int) -> int:
     """Extra ``in_transit`` hops for farther destinations (0 near, up to 2 far)."""
     if zone < 5:
         return 0
     return 1 if zone < 7 else 2
+
+
+def _facility_types(scans: list[str]) -> list[str]:
+    """Map each scan to its network stage, from ``scan_type`` + position alone.
+
+    ``picked_up`` is the origin hub; ``in_transit`` hops are line-haul except the
+    last one, which is the arrival at the destination hub; ``out_for_delivery`` /
+    ``delivered`` are the local leg. An ``exception`` is local when the parcel
+    reached ``out_for_delivery`` (a failed delivery), otherwise it was lost upstream
+    at the destination hub.
+    """
+    last_in_transit = max((i for i, s in enumerate(scans) if s == SCAN_IN_TRANSIT), default=-1)
+    reached_local = SCAN_OUT_FOR_DELIVERY in scans
+    out: list[str] = []
+    for i, scan_type in enumerate(scans):
+        if scan_type == SCAN_PICKED_UP:
+            out.append(_FAC_ORIGIN_HUB)
+        elif scan_type == SCAN_IN_TRANSIT:
+            out.append(_FAC_DEST_HUB if i == last_in_transit else _FAC_LINEHAUL)
+        elif scan_type == SCAN_EXCEPTION:
+            out.append(_FAC_LOCAL if reached_local else _FAC_DEST_HUB)
+        else:  # out_for_delivery / delivered
+            out.append(_FAC_LOCAL)
+    return out
 
 
 def _journey(status: str, zone: int) -> list[str]:
@@ -103,9 +135,11 @@ def build_scan_events(ctx: GenContext) -> pl.DataFrame:
     out_type: list[str] = []
     out_ts: list[datetime] = []
     out_city: list[str] = []
+    out_facility: list[str] = []
     scan_no = 0
     for i in range(n):
         scans = _journey(str(status[i]), int(zone[i]))
+        facilities = _facility_types(scans)
         if status[i] == "delivered":
             delta = -int(early_days[i]) if is_ontime[i] else int(late_days[i])
             terminal_date = max(ship_date[i], promised_date[i] + timedelta(days=delta))
@@ -133,6 +167,7 @@ def build_scan_events(ctx: GenContext) -> pl.DataFrame:
             out_type.append(scan_type)
             out_ts.append(ts)
             out_city.append(loc)
+            out_facility.append(facilities[seq - 1])
 
     return pl.DataFrame(
         {
@@ -140,6 +175,7 @@ def build_scan_events(ctx: GenContext) -> pl.DataFrame:
             "shipment_id": out_shipment,
             "seq": out_seq,
             "scan_type": out_type,
+            "facility_type": out_facility,
             "scan_ts": pl.Series(out_ts, dtype=pl.Datetime),
             "location_city": out_city,
         }

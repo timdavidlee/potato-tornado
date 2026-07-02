@@ -32,8 +32,17 @@ update the matching line below in the same change.
   descriptive dim attributes — **not** terms in this identity (see deliberate simplifications).
 - **Non-negativity / bounds.** `weight_kg ∈ (0, 50]`, `shipping_cost > 0`,
   `dest_zone ∈ [1, 8]`, `attempts ∈ [1, 3]`, `seq ≥ 1`, `reliability ∈ (0, 1)`,
-  `fuel_surcharge_pct ∈ [0.08, 0.16]`, `capacity_units > 0`. `warehouses.opened_date` precedes
-  the data window's `start_date`.
+  `fuel_surcharge_pct ∈ [0.08, 0.16]`, `capacity_units > 0`,
+  `length_cm / width_cm / height_cm > 0`. `warehouses.opened_date` precedes the data window's
+  `start_date`.
+- **Dimensional weight is derivable, not priced.** `dim_weight = length_cm × width_cm ×
+  height_cm ÷ 5000` (the standard cm→kg dim factor) and `billable_weight = max(weight_kg,
+  dim_weight)` recompute cleanly from stored columns, but neither feeds `shipping_cost` (which
+  stays weight-based — see deliberate simplifications).
+- **Facility stage is derived from the scan ladder** (not a stored draw): every `picked_up`
+  scan is `origin_hub`, every `out_for_delivery` / `delivered` is `local`; `in_transit` hops are
+  `linehaul` except the last, which is `destination_hub`; an `exception` is `local` iff the
+  parcel reached `out_for_delivery`, else `destination_hub`.
 - **Last-mile method consistency.** `deliveries.delivery_method` is non-null **iff**
   `status = 'delivered'` (null on `returned_to_sender` / `lost`, parallel to the null actual
   date). For a delivered parcel it is `'signature'` **iff** the shipment's `signature_required`
@@ -43,7 +52,8 @@ update the matching line below in the same change.
   `status ∈ {delivered, returned_to_sender, lost}`; `warehouses.region` from the 4-region set;
   `package_type ∈ {envelope, pak, small_box, large_box, pallet}`;
   `carriers.transport_mode ∈ {air, ground, regional}`;
-  `deliveries.delivery_method ∈ {doorstep, locker, pickup_point, signature}` (or null).
+  `deliveries.delivery_method ∈ {doorstep, locker, pickup_point, signature}` (or null);
+  `scan_events.facility_type ∈ {origin_hub, linehaul, destination_hub, local}`.
 
 ## Distributions & mixes (should look like the real world)
 
@@ -61,6 +71,11 @@ update the matching line below in the same change.
 - **signature_required.** Boolean, overall ≈ 0.09, lifted by service tier (ground ≈ 0.05,
   express ≈ 0.15, overnight ≈ 0.29) and by weight (≈ 0.55 for parcels ≥ 20 kg). Base 0.05 +
   service bump + heavy bump.
+- **dimensions (`length_cm` / `width_cm` / `height_cm`).** Volume = `weight_kg ÷ density × 1e6`
+  with density lognormal (median ≈ 195 kg/m³, σ ≈ 0.45), split into three edges by an aspect
+  jitter (0.75–1.35×). Strongly correlated with weight (`corr(weight_kg, dim_weight)` ≈ 0.8;
+  `corr(weight_kg, length_cm)` ≈ 0.7). Because the median density sits just under the dim-factor
+  break-even (200 kg/m³), ≈ 0.5 of parcels are dimensional-weight-bound (`dim_weight > weight_kg`).
 - **transport_mode / fuel_surcharge_pct.** Static per-carrier catalog attributes: 2 air / 2
   ground / 1 regional; surcharge ≈ 0.08–0.16, higher for air carriers.
 - **capacity_units.** Lognormal per warehouse (median ≈ 45k, σ ≈ 0.55), rounded to an integer —
@@ -78,6 +93,10 @@ update the matching line below in the same change.
   delivered`); +1 `in_transit` hop for zones ≥ 5 (and a second past zone 7); a non-delivered
   parcel ends in `exception` instead of `delivered` (returned reaches `out_for_delivery`
   first, lost does not) — so ≈ 3–6 rows/shipment.
+- **facility_type.** Derived per scan, so its mix tracks the ladder: exactly one `origin_hub`
+  and one `destination_hub` per shipment (the pickup and the last `in_transit` hop), `linehaul`
+  only on the extra hops of zone-≥ 5 parcels (≈ 0.35 of shipments), and `local` on every
+  `out_for_delivery` / `delivered` (so it's the largest bucket, ≈ 40% of all scans).
 - **scan timestamps.** The first scan is on/after `ship_date` at ~08:00; intermediate scans
   are spread monotonically toward the terminal scan. The terminal scan lands at a
   per-shipment time-of-day drawn uniformly across **[12:00, 20:00)** (roughly flat by hour) —
@@ -106,12 +125,17 @@ update the matching line below in the same change.
   labels; zone is the only distance signal.
 - **Transit is measured in calendar days** — no weekend/holiday pauses, no business-day
   arithmetic. `promised_date` can land on any day of the week.
-- **Flat `per_kg_rate`** — no dimensional/volumetric weight, customs, or zone-based per-kg
-  pricing. Cost is a clean linear identity. `carriers.fuel_surcharge_pct` and `transport_mode`
-  exist as descriptive covariates but are **not** folded into `shipping_cost` (landed-cost
-  analysis is left as a downstream exercise, not baked into the identity).
+- **Flat `per_kg_rate`** — no customs or zone-based per-kg pricing. Cost is a clean linear
+  identity on *actual* weight. `carriers.fuel_surcharge_pct` and `transport_mode` exist as
+  descriptive covariates but are **not** folded into `shipping_cost` (landed-cost analysis is
+  left as a downstream exercise, not baked into the identity).
+- **Dimensions exist but don't price.** `length_cm` / `width_cm` / `height_cm` make
+  dimensional/billable weight *derivable*, but `shipping_cost` still bills by `weight_kg` alone —
+  the dim-weight-vs-actual comparison is a teaching exercise on top of the data, deliberately not
+  wired into the cost identity (which stays exact and reproducible).
 - **`package_type` is independent of `weight_kg`** — a descriptive form-factor label, not a
-  driver of weight or cost; a pallet can be light, an envelope is not forced small.
+  driver of weight or cost; a pallet can be light, an envelope is not forced small. (Note the
+  *dimensions* above **are** weight-correlated; only the categorical `package_type` is not.)
 - **`delivery_method` is drawn, not caused** — the unattended-method split (doorstep / locker /
   pickup_point) is independent of zone, carrier, or attempts; only the signature path is tied to
   `signature_required`.

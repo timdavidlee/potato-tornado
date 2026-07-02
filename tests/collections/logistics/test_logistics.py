@@ -138,12 +138,53 @@ def test_bounds_hold(logistics: dict[str, pl.DataFrame]) -> None:
     [
         ("shipments", "package_type", {"envelope", "pak", "small_box", "large_box", "pallet"}),
         ("carriers", "transport_mode", {"air", "ground", "regional"}),
+        (
+            "scan_events",
+            "facility_type",
+            {"origin_hub", "linehaul", "destination_hub", "local"},
+        ),
     ],
 )
 def test_catalog_columns_stay_in_their_catalog(
     logistics: dict[str, pl.DataFrame], table: str, column: str, catalog: set[str]
 ) -> None:
     assert set(logistics[table][column].to_list()) <= catalog
+
+
+@pytest.mark.parametrize(
+    ("scan_type", "facility_type"),
+    [("picked_up", "origin_hub"), ("out_for_delivery", "local"), ("delivered", "local")],
+)
+def test_facility_type_follows_scan_type(
+    logistics: dict[str, pl.DataFrame], scan_type: str, facility_type: str
+) -> None:
+    rows = logistics["scan_events"].filter(pl.col("scan_type") == scan_type)
+    off = rows.filter(pl.col("facility_type") != facility_type)
+    assert off.height == 0
+
+
+def test_last_in_transit_hop_is_the_destination_hub(logistics: dict[str, pl.DataFrame]) -> None:
+    in_transit = logistics["scan_events"].filter(pl.col("scan_type") == "in_transit")
+    last_hop = in_transit.filter(pl.col("seq") == pl.col("seq").max().over("shipment_id"))
+    assert last_hop.filter(pl.col("facility_type") != "destination_hub").height == 0
+
+
+def test_parcel_dimensions_are_positive(logistics: dict[str, pl.DataFrame]) -> None:
+    ships = logistics["shipments"]
+    assert (
+        cast(float, ships["length_cm"].min()) > 0
+        and cast(float, ships["width_cm"].min()) > 0
+        and cast(float, ships["height_cm"].min()) > 0
+    )
+
+
+def test_dimensions_correlate_with_weight(logistics: dict[str, pl.DataFrame]) -> None:
+    ships = logistics["shipments"]
+    dim_weight = ships["length_cm"] * ships["width_cm"] * ships["height_cm"] / 5000
+    corr = pl.DataFrame({"w": ships["weight_kg"], "d": dim_weight}).select(pl.corr("w", "d"))["w"][
+        0
+    ]
+    assert cast(float, corr) > 0.5
 
 
 def test_fuel_surcharge_within_band(logistics: dict[str, pl.DataFrame]) -> None:
