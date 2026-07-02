@@ -11,11 +11,9 @@ from __future__ import annotations
 
 import polars as pl
 
-from potato_tornado.collections.hotel.constants import ROOM_TYPES
+from potato_tornado.collections.hotel.constants import ROOM_TYPES, UPGRADE_RATE_BY_CHANNEL
 from potato_tornado.core.collection import GenContext
 
-# Share of eligible stays (everything but the top of the ladder) that upgrade.
-_UPGRADE_RATE = 0.15
 # Guests pay this fraction of the full rack-rate delta — the upsell discount.
 _DISCOUNT_LOW, _DISCOUNT_HIGH = 0.55, 0.80
 # Most upgrades are a single rung; occasionally a guest jumps two.
@@ -25,6 +23,7 @@ _TWO_RUNG_PROB = 0.2
 def build_room_upgrades(ctx: GenContext) -> pl.DataFrame:
     stays = ctx.table("stays")
     rates = _rate_lookup(ctx.table("room_types"))
+    channel_by_res = _channel_lookup(ctx.table("reservations"))
 
     ladder = [name for name, _, _ in ROOM_TYPES]
     tier = {name: i for i, name in enumerate(ladder)}
@@ -39,8 +38,9 @@ def build_room_upgrades(ctx: GenContext) -> pl.DataFrame:
     rows_delta: list[float] = []
     rows_fee: list[float] = []
     rows_date: list[object] = []
-    for stay_id, pid, from_type, nights, check_in in zip(
+    for stay_id, res_id, pid, from_type, nights, check_in in zip(
         stays["stay_id"].to_list(),
+        stays["reservation_id"].to_list(),
         stays["property_id"].to_list(),
         stays["room_type"].to_list(),
         stays["actual_nights"].to_list(),
@@ -48,8 +48,9 @@ def build_room_upgrades(ctx: GenContext) -> pl.DataFrame:
         strict=True,
     ):
         from_tier = tier[from_type]
-        if from_tier == top or rng.random() > _UPGRADE_RATE:
-            continue  # top-of-ladder stays can't upgrade; most others don't
+        upgrade_rate = UPGRADE_RATE_BY_CHANNEL[channel_by_res[res_id]]
+        if from_tier == top or rng.random() > upgrade_rate:
+            continue  # top-of-ladder stays can't upgrade; direct guests upgrade most
         step = 2 if rng.random() < _TWO_RUNG_PROB else 1
         to_type = ladder[min(from_tier + step, top)]
 
@@ -77,6 +78,17 @@ def build_room_upgrades(ctx: GenContext) -> pl.DataFrame:
             "upgrade_fee": rows_fee,
             "upgrade_date": rows_date,
         }
+    )
+
+
+def _channel_lookup(reservations: pl.DataFrame) -> dict[str, str]:
+    """Map ``reservation_id -> channel`` so the upgrade rate can key off booking channel."""
+    return dict(
+        zip(
+            reservations["reservation_id"].to_list(),
+            reservations["channel"].to_list(),
+            strict=True,
+        )
     )
 
 

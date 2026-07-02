@@ -41,7 +41,10 @@ update the matching line below in the same change.
 - **No-show vs. visit type.** Independent of lead time, no-show probability also shifts by
   `visit_type`: New Patient ≈ 20–23% (highest), Annual Physical / Minor Procedure ≈ 8–9%
   (lowest), Follow-up / Chronic Care / Telehealth ≈ 10%. See `scenarios/no-show-rate.md`.
-- **Slot utilisation.** ≈ 68–70% of slots booked overall; per-provider ≈ 45%–92%. See
+- **Slot utilisation.** ≈ 68–70% of slots booked overall, but keyed to specialty (not random
+  per provider): Dermatology 0.88 / Cardiology 0.82 / Orthopedics 0.74 / Internal Medicine
+  0.64 / Family Medicine 0.56 / Pediatrics 0.48, ±~4% per-provider jitter. Demand-heavy
+  specialties run near-full; others carry spare capacity. See
   `scenarios/provider-utilisation.md`.
 - **Visit-type mix.** Clinic-wide ≈ Follow-up 0.32 / Chronic Care 0.18 / Annual Physical 0.16
   / New Patient 0.13 / Minor Procedure 0.09 / Telehealth 0.10 — the appointment-weighted

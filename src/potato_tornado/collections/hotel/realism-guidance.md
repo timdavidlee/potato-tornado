@@ -53,19 +53,29 @@ update the matching line below in the same change.
   `scenarios/ota-is-the-largest-channel.md`.
 - **Room-type mix & rate ladder.** Standard 0.55 ($95) → Deluxe 0.28 ($145) → Suite 0.12
   ($260) → Penthouse 0.05 ($480), before the per-property location multiplier.
-- **Reservation status.** honoured 0.82 / cancelled 0.14 / no_show 0.04.
+- **Reservation status.** Overall honoured 0.82 / cancelled 0.14 / no_show 0.04, but
+  keyed to channel: the drop-off (cancel + no_show) concentrates in the OTA and nearly
+  vanishes for walk_in. Per-channel honoured/cancelled/no_show — direct 0.88/0.09/0.03,
+  ota 0.73/0.21/0.06, corporate 0.85/0.12/0.03, walk_in 0.98/0.02/0.00 — so overall
+  drop-off ≈18% but ota ≈27% ≫ walk_in ≈1.5%. See `scenarios/reservation-funnel.md`.
 - **Booking volume & occupancy.** ~24,000 reservations across the 3-year window fill each
   property to ≈10 occupied rooms/day on average (peaks ~25, always under capacity). The
   double-digit occupancy is deliberate: it's what lets the forecast's ~10% MAPE show through
   integer rounding — see `scenarios/forecast-tracks-actual-with-error.md`.
-- **Lead time.** Lognormal, median ≈14 days, right-skewed out to the 240-day cap.
+- **Lead time.** Lognormal with a per-channel `(median, sigma)`, right-skewed out to the
+  240-day cap. Overall median ≈13 / mean ≈24 / p95 ≈84, but the tail is fattest for the OTA
+  and near-zero for walk_in: ota (24, 1.0), direct (12, 0.85), corporate (8, 0.8), walk_in
+  (1, 0.6). See `scenarios/lead-time-is-right-skewed.md`.
 - **Length & party.** `nights` ~ Poisson(2.2)+1; `party_size` ~ Poisson(1.3)+1.
 - **Ancillary spend scales with stay.** Service-order count ~ Poisson(0.9 × nights) — longer
   stays accrue more entries. The catalog mixes discretionary spend (Breakfast, Spa, Dining,
   Room Service, Minibar, Laundry) with recurring stay fees (Internet, Television, Parking).
-- **Upgrades are a discounted upsell.** ~15% of eligible stays upgrade (Penthouse stays
-  excluded); most jump one rung (80%), occasionally two; the fee is 55–80% of the rack-rate
-  delta (mean ≈0.68). See `scenarios/upgrades-are-a-discounted-upsell.md`.
+- **Upgrades are a discounted upsell, concentrated in direct bookings.** ~15% of eligible
+  stays upgrade (Penthouse stays excluded), but the rate is keyed to the booking channel:
+  direct 0.25 / walk_in 0.15 / corporate 0.14 / ota 0.08 — so the upsell is a direct-channel
+  play. Most jump one rung (80%), occasionally two; the fee is 55–80% of the rack-rate delta
+  (mean ≈0.68) regardless of channel. See
+  `scenarios/upgrades-concentrate-in-direct-bookings.md`.
 - **Stays extend more than they shorten.** ~20% of stays are amended; of those, extensions
   outnumber early checkouts ~1.7:1. Early checkouts cut 1–2 nights (flat one-night penalty);
   extensions add 1–3 nights (10–25% premium). See
@@ -86,8 +96,10 @@ update the matching line below in the same change.
   forecast error band varies by weekend, not price). (A strong candidate to promote into a new
   scenario.) Arrival *demand*, by contrast, is seasonal — see
   `scenarios/check-ins-peak-in-summer.md`.
-- Status and room type are drawn independently, and channel depends only on room class (no
-  channel-driven cancellation effects).
+- Room type is drawn independently; channel depends on room class, and both status and lead
+  time depend on channel (the OTA drop-off in `scenarios/reservation-funnel.md`, the OTA lead-
+  time tail in `scenarios/lead-time-is-right-skewed.md`). Status is not otherwise keyed to
+  room class, lead time, or season.
 - Guests are not deduplicated: every reservation is a fresh name, so there is no
   repeat-guest / loyalty signal.
 - Recurring fees (Internet, Television, Parking) are modeled as discretionary

@@ -53,7 +53,39 @@ SERVICES = [
 ]
 
 RES_STATUS = ["honoured", "cancelled", "no_show"]
-RES_STATUS_WEIGHTS = [0.82, 0.14, 0.04]
+
+# Reservation status keyed by booking channel. Overall the mix still lands at
+# ~0.82 honoured / 0.14 cancelled / 0.04 no_show, but the drop-off (cancel +
+# no_show) concentrates in the OTA and nearly vanishes for walk_in — a walk-in
+# guest is already on-site, so can't meaningfully cancel or no-show. Rows are in
+# RES_STATUS order and each sums to 1.0.
+RES_STATUS_BY_CHANNEL = {
+    "direct": [0.88, 0.09, 0.03],
+    "ota": [0.73, 0.21, 0.06],
+    "corporate": [0.85, 0.12, 0.03],
+    "walk_in": [0.98, 0.02, 0.00],
+}
 
 CHANNELS = ["direct", "ota", "corporate", "walk_in"]
-CHANNEL_WEIGHTS = [0.34, 0.44, 0.16, 0.06]
+
+# Booking lead time keyed by channel: (lognormal median days, sigma). The overall
+# gap is right-skewed with median ≈14 days, but the shape differs by channel — OTA
+# leisure books far ahead with a fat tail, walk_in is same-/next-day, corporate and
+# direct sit in between. Larger sigma = fatter right tail.
+LEAD_TIME_BY_CHANNEL = {
+    "direct": (12.0, 0.85),
+    "ota": (24.0, 1.0),
+    "corporate": (8.0, 0.8),
+    "walk_in": (1.0, 0.6),
+}
+
+# Share of eligible stays that take a room upgrade, keyed by the booking channel.
+# Overall lands ≈15%, but the upsell concentrates in direct-booking guests (a
+# loyalty / front-desk relationship the hotel can work) and is weakest for the
+# transactional OTA. Penthouse stays are never eligible (already at the top).
+UPGRADE_RATE_BY_CHANNEL = {
+    "direct": 0.25,
+    "ota": 0.08,
+    "corporate": 0.14,
+    "walk_in": 0.15,
+}
