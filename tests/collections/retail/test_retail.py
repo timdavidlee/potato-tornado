@@ -110,6 +110,7 @@ def test_weight_kg_within_bounds(retail: dict[str, pl.DataFrame]) -> None:
             {"organic", "paid_search", "social", "referral", "email"},
         ),
         ("returns", "refund_method", {"original_payment", "store_credit", "exchange"}),
+        ("returns", "item_condition", {"resellable", "opened", "damaged"}),
     ],
 )
 def test_categorical_fields_stay_in_catalog(
@@ -145,3 +146,23 @@ def test_order_volume_peaks_in_q4(retail: dict[str, pl.DataFrame]) -> None:
     orders = retail["orders"].with_columns(pl.col("order_date").dt.month().alias("month"))
     q4_share = orders.filter(pl.col("month").is_in([11, 12])).height / orders.height
     assert q4_share > 0.25
+
+
+def test_restock_rate_tracks_item_condition(retail: dict[str, pl.DataFrame]) -> None:
+    # `restocked` keys off `item_condition`: resellable items restock far more than
+    # damaged ones (~0.97 vs ~0.04). A flat gap would mean the mediation broke.
+    rates = (
+        retail["returns"].group_by("item_condition").agg(pl.col("restocked").mean().alias("rate"))
+    )
+    lookup = dict(zip(rates["item_condition"].to_list(), rates["rate"].to_list(), strict=True))
+    assert lookup["resellable"] - lookup["damaged"] > 0.5
+
+
+def test_damage_reasons_arrive_mostly_damaged(retail: dict[str, pl.DataFrame]) -> None:
+    # item_condition correlates with reason: defect/transit-damage returns arrive in
+    # `damaged` condition the majority of the time (mix is 0.80-0.87 damaged).
+    damage_reasons = retail["returns"].filter(
+        pl.col("reason").is_in(["defective", "damaged_in_transit"])
+    )
+    damaged_share = damage_reasons.filter(pl.col("item_condition") == "damaged").height
+    assert damaged_share / damage_reasons.height > 0.6

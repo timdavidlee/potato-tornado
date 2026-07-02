@@ -5,7 +5,9 @@ more than consumables), at most once. The return's ``reason`` mix is also
 category-specific — apparel skews to fit/mind-change, electronics to defects. The
 refund is the whole line total (usually) or a restocking-fee partial, and never
 exceeds the line total; ``refund_method`` records how it was issued (original
-payment / store credit / exchange), drawn independently of reason.
+payment / store credit / exchange), drawn independently of reason. ``item_condition``
+(resellable / opened / damaged) is the arrival condition, keyed to ``reason``, and is
+what ``restocked`` keys off — only resellable items reliably go back to stock.
 """
 
 from __future__ import annotations
@@ -26,14 +28,20 @@ _REASON_MIX = {
     "home": [0.30, 0.10, 0.25, 0.20, 0.15],
     "consumables": [0.30, 0.05, 0.30, 0.20, 0.15],
 }
-# Likelihood a returned item goes back to stock, by reason — defects/damage rarely do.
-_RESTOCK_P = {
-    "changed_mind": 0.90,
-    "too_small": 0.90,
-    "not_as_described": 0.50,
-    "defective": 0.05,
-    "damaged_in_transit": 0.05,
+# Condition on arrival, keyed to reason (order: resellable, opened, damaged). This
+# mediates restock: mind-change/fit returns arrive mostly resellable, defects/damage
+# mostly damaged. `restocked` then keys off condition, not reason directly.
+_CONDITIONS = ["resellable", "opened", "damaged"]
+_CONDITION_MIX = {
+    "changed_mind": [0.78, 0.20, 0.02],
+    "too_small": [0.72, 0.26, 0.02],
+    "not_as_described": [0.45, 0.40, 0.15],
+    "defective": [0.04, 0.16, 0.80],
+    "damaged_in_transit": [0.03, 0.10, 0.87],
 }
+# Likelihood a returned item goes back to stock, by arrival condition — only a
+# resellable item reliably restocks; damaged almost never does.
+_RESTOCK_BY_CONDITION = {"resellable": 0.97, "opened": 0.50, "damaged": 0.04}
 _FULL_REFUND_P = 0.90
 _PARTIAL_LOW = 0.60
 _PARTIAL_HIGH = 0.90
@@ -73,7 +81,14 @@ def build_returns(ctx: GenContext) -> pl.DataFrame:
     factor = ctx.rng.child("refund_partial").numpy.uniform(_PARTIAL_LOW, _PARTIAL_HIGH, k)
     refund_amount = np.round(np.where(full, line_total, line_total * factor), 2)
 
-    restock_p = np.array([_RESTOCK_P[r] for r in reason])
+    # Condition on arrival: per-row draw against the reason's cumulative condition mix.
+    cmat = np.array([_CONDITION_MIX[r] for r in reason])
+    ccum = np.cumsum(cmat / cmat.sum(axis=1, keepdims=True), axis=1)
+    cu = ctx.rng.child("condition").numpy.random(k)
+    item_condition = [_CONDITIONS[i] for i in (cu[:, None] <= ccum).argmax(axis=1)]
+
+    # Restock keys off condition (which is reason-driven), not reason directly.
+    restock_p = np.array([_RESTOCK_BY_CONDITION[c] for c in item_condition])
     restocked = ctx.rng.child("restock").numpy.random(k) < restock_p
 
     refund_method = ctx.rng.child("refund_method").numpy.choice(
@@ -97,6 +112,7 @@ def build_returns(ctx: GenContext) -> pl.DataFrame:
             "reason": reason,
             "refund_amount": refund_amount,
             "refund_method": refund_method,
+            "item_condition": item_condition,
             "restocked": restocked,
         }
     )

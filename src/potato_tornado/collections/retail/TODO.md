@@ -61,12 +61,13 @@ name-keyed child streams so existing columns/tests are byte-identical._
 - **Class:** realism enrichment — composes with the derived basket value the collection already
   teaches (documented today as *excluding* tax/shipping; reconcile that simplification).
 
-### 4. `returns.item_condition` → reverse logistics
-- [ ] Condition on arrival (`Utf8`: resellable / damaged / opened), correlated with `reason`
-      (defective/damaged rarely resellable — this is what `restocked` should key off).
-- **Unlocks:** reverse-logistics recovery rate; ties the existing `restocked` flag to a cause.
-- **Class:** realism enrichment — directly addresses the standing realism note that
-  `restocked` is keyed only to `reason`.
+### 4. `returns.item_condition` → reverse logistics ✅ shipped 2026-07-02
+- [x] Condition on arrival (`Utf8`: resellable / opened / damaged), keyed to `reason`
+      (defective/damaged rarely resellable), and `restocked` now keys off it. See
+      `returns.py` (`_CONDITION_MIX` / `_RESTOCK_BY_CONDITION`) + realism-log.
+- **Unlocked:** reverse-logistics recovery rate (overall ≈ resellable 0.51 / damaged 0.27 /
+  opened 0.22); ties `restocked` to a cause via `reason → item_condition → restocked`.
+- **Class:** realism enrichment — resolved the standing "restocked keyed only to reason" note.
 
 ### 5. `order_items.discount_pct`
 - [ ] Per-line promotional discount (`Float64`, mostly 0), so `line_total` reflects the net

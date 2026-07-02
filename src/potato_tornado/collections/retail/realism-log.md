@@ -58,3 +58,16 @@ restock) documented in `realism-guidance.md`. (as of 2026-07-02)
   scenario-bearing items (`products.cost`, `orders.discount_amount`) stay in `TODO.md` for the
   scenario workflow. Status still **Needs investigation**: the enrichment added dimensions but
   no dedicated too-synthetic sweep has run.
+- **2026-07-02 — `returns.item_condition` (high-leverage item 4).** Added arrival condition
+  (`resellable` / `opened` / `damaged`), drawn per-row from a reason-keyed cumulative mix
+  (child stream `condition`), and **re-keyed `restocked` off condition instead of `reason`
+  directly** — closing the standing "restocked keyed only to reason" note (the reason→condition→
+  restock chain replaces `_RESTOCK_P`). Measured: overall condition ≈ resellable 0.51 / damaged
+  0.27 / opened 0.22; strong reason correlation (defect/transit-damage ~0.80–0.87 damaged,
+  mind-change/fit ~0.75 resellable); restock-by-condition 0.97 / 0.50 / 0.04; mediated
+  restock-by-reason ~0.85 (fit/mind-change) → ~0.63 (`not_as_described`) → ~0.08–0.15
+  (defect/damage). Other columns byte-identical (`restock` child stream and count unchanged;
+  only its per-row threshold moved from reason to condition). Reconciled `realism-guidance.md`
+  (item_condition catalog + mix, restock-mediation line, removed the now-resolved simplification
+  bullet, added a review query) and pinned tests (catalog membership, restock↔condition gap,
+  damage-reason→damaged-condition).

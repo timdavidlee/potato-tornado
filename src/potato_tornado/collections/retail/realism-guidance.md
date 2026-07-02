@@ -30,6 +30,7 @@ update the matching line below in the same change.
   `customers.acquisition_channel ∈ {organic, paid_search, social, referral, email}`;
   `orders.payment_method ∈ {card, paypal, gift_card, bnpl}`;
   `returns.refund_method ∈ {original_payment, store_credit, exchange}`;
+  `returns.item_condition ∈ {resellable, opened, damaged}`;
   `products.brand ∈` the row category's brand catalog.
 - **Non-negativity / bounds (added fields).** `products.weight_kg ∈ [0.05, 30]`.
 
@@ -64,8 +65,13 @@ update the matching line below in the same change.
   small and roughly flat (~10%) across categories. See
   `scenarios/return-reasons-differ-by-category.md`.
 - **refund_amount.** Full line refund 0.90; else a restocking-fee partial 0.6–0.9× the line
-  total. `restocked` depends on reason — fit/mind-change usually restock (~0.9),
-  defective/damaged rarely do (~0.05).
+  total.
+- **item_condition (`returns`).** Arrival condition keyed to `reason`: mind-change/fit returns
+  arrive mostly `resellable` (~0.75), defect/damage returns mostly `damaged` (~0.80–0.87),
+  `not_as_described` mixed. Overall ≈ resellable 0.51 / damaged 0.27 / opened 0.22.
+- **restocked.** Keyed to `item_condition` (which is reason-driven), not `reason` directly:
+  resellable ~0.97 / opened ~0.50 / damaged ~0.04. The mediated restock-by-reason gradient is
+  fit/mind-change ~0.85, `not_as_described` ~0.63, defective/damaged ~0.08–0.15.
 - **return_date.** order date + 5–30 days, clipped to stay inside the window.
 - **brand (`products`).** Uniform over the row category's 5-brand house catalog — so brand
   sits *inside* the category, and a brand-level sales/return slice just re-expresses the
@@ -95,10 +101,6 @@ update the matching line below in the same change.
   is purely merchandise.
 - **No inventory or stock model.** Any product can appear on any order in any quantity; there
   are no stockouts, and `restocked` doesn't feed back into available inventory.
-- **`restocked` is keyed only to `reason`.** Restock likelihood is a per-reason probability
-  (mind-change/fit ~0.9, defective/damaged ~0.05) with no mediating item condition — a clean,
-  causally-sensible step by reason. Adding a `returns.item_condition` covariate is tracked as
-  field-enrichment in `TODO.md`, not a realism bug.
 - **Return propensity and reason depend only on category** — not on price, customer segment,
   channel, quantity, or season. A real store would couple returns to fit/size data and customer
   history; here category is the sole covariate (the planted signal).
@@ -143,4 +145,8 @@ from orders;
 
 -- product names are mostly distinct (~0.95; guards against the adjective+noun lattice)
 select count(distinct product_name)::float / count(*) as distinct_name_ratio from products;
+
+-- restock keys off arrival condition (~0.97 resellable / ~0.50 opened / ~0.04 damaged)
+select item_condition, avg(restocked::int) as restock_rate
+from returns group by item_condition order by restock_rate;
 ```
