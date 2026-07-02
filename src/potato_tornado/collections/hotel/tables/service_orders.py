@@ -13,7 +13,8 @@ from potato_tornado.core.collection import GenContext
 def build_service_orders(ctx: GenContext) -> pl.DataFrame:
     stays = ctx.table("stays")
     service_names = [s[0] for s in SERVICES]
-    service_price = dict(SERVICES)
+    service_price = {name: price for name, price, _ in SERVICES}
+    service_weights = [w for _, _, w in SERVICES]
     rng = ctx.rng.numpy
 
     rows_stay: list[str] = []
@@ -32,8 +33,10 @@ def build_service_orders(ctx: GenContext) -> pl.DataFrame:
         # Longer stays accrue more service-book entries.
         count = int(rng.poisson(0.9 * nights))
         for _ in range(count):
-            service = str(rng.choice(service_names))
-            qty = int(rng.integers(1, 3))
+            service = str(rng.choice(service_names, p=service_weights))
+            # Most lines are a single unit; a minority are 2, rarely 3 — right-skewed,
+            # not a flat 1-or-2 coin flip.
+            qty = int(rng.choice([1, 2, 3], p=[0.7, 0.24, 0.06]))
             day_offset = int(rng.integers(0, max(1, nights)))
             rows_stay.append(stay_id)
             rows_prop.append(pid)

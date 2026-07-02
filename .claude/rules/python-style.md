@@ -50,8 +50,9 @@ Conventions for all Python in this repo. These reflect the enforced config in
 - **Use a Pydantic model when you need runtime validation or parsing at a boundary** —
   untrusted input, config files, CLI/JSON payloads — where values should be coerced and bad
   data should raise. For internal, already-trusted data a plain dataclass is lighter; don't
-  reach for Pydantic just to hold fields. Pydantic isn't a dependency yet — add it with
-  `uv add pydantic` when the first real use appears (see **Dependencies**).
+  reach for Pydantic just to hold fields. Pydantic is already a dependency (see
+  **Dependencies**) but has no real use in the codebase yet — don't reach for it until one
+  actually needs boundary validation.
 - **Reserve bare dicts for genuinely dynamic, string-keyed maps** — homogeneous lookups, or
   shapes that truly vary at runtime (e.g. a collection's `name -> DataFrame` result). When you
   do pass a loose `dict[str, Any]`, document the shape with a foo-bar example per **Docstrings**.

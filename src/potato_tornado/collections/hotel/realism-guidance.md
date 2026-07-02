@@ -46,30 +46,42 @@ update the matching line below in the same change.
 
 ## Distributions & mixes (should look like the real world)
 
-- **Channel mix.** Overall ota ≈0.43 (largest) / direct ≈0.34 / corporate ≈0.17 / walk_in
-  ≈0.06, but keyed to room class: upper tiers (Suite/Penthouse) draw direct 0.55 / ota 0.22 /
+- **Channel mix.** Overall ota ≈0.45 (largest) / direct ≈0.33 / corporate ≈0.16 / walk_in
+  ≈0.06 (the overall split is an emergent product of the room-type mix and the per-tier
+  channel weights below), but keyed to room class: upper tiers (Suite/Penthouse) draw
+  direct 0.55 / ota 0.22 /
   corporate 0.18 / walk_in 0.05, lower tiers direct 0.28 / ota 0.50 / corporate 0.16 /
   walk_in 0.06 — so direct is modal for the upper tiers. See
   `scenarios/ota-is-the-largest-channel.md`.
 - **Room-type mix & rate ladder.** Standard 0.55 ($95) → Deluxe 0.28 ($145) → Suite 0.12
   ($260) → Penthouse 0.05 ($480), before the per-property location multiplier.
-- **Reservation status.** Overall honoured 0.82 / cancelled 0.14 / no_show 0.04, but
+- **Reservation status.** Overall honoured ≈0.81 / cancelled ≈0.145 / no_show ≈0.04, but
   keyed to channel: the drop-off (cancel + no_show) concentrates in the OTA and nearly
   vanishes for walk_in. Per-channel honoured/cancelled/no_show — direct 0.88/0.09/0.03,
   ota 0.73/0.21/0.06, corporate 0.85/0.12/0.03, walk_in 0.98/0.02/0.00 — so overall
-  drop-off ≈18% but ota ≈27% ≫ walk_in ≈1.5%. See `scenarios/reservation-funnel.md`.
-- **Booking volume & occupancy.** ~24,000 reservations across the 3-year window fill each
-  property to ≈10 occupied rooms/day on average (peaks ~25, always under capacity). The
-  double-digit occupancy is deliberate: it's what lets the forecast's ~10% MAPE show through
-  integer rounding — see `scenarios/forecast-tracks-actual-with-error.md`.
+  drop-off ≈19% but ota ≈27% ≫ walk_in ≈1.5%. See `scenarios/reservation-funnel.md`.
+- **Booking volume & occupancy.** ~24,000 reservations across the 3-year window, assigned to
+  properties **in proportion to room count**, so occupancy scales with size instead of sitting
+  flat: small (~60-room) properties run ≈5 occupied rooms/day, large (~210-room) ones ≈15
+  (overall mean ≈10, peaks ~30, always under capacity), and utilization lands at a comparable
+  ≈7–8% across every property. The double-digit occupancy at the larger properties is
+  deliberate: it's what lets the forecast's ~10% MAPE show through integer rounding — see
+  `scenarios/forecast-tracks-actual-with-error.md`.
 - **Lead time.** Lognormal with a per-channel `(median, sigma)`, right-skewed out to the
   240-day cap. Overall median ≈13 / mean ≈24 / p95 ≈84, but the tail is fattest for the OTA
   and near-zero for walk_in: ota (24, 1.0), direct (12, 0.85), corporate (8, 0.8), walk_in
   (1, 0.6). See `scenarios/lead-time-is-right-skewed.md`.
-- **Length & party.** `nights` ~ Poisson(2.2)+1; `party_size` ~ Poisson(1.3)+1.
+- **Length & party.** Both are `Poisson(λ)+1` with `λ` keyed to a segment rather than flat
+  across the table. `nights` λ is keyed to channel — business channels stay shorter than
+  leisure: corporate/walk_in ≈2.6 nights, direct ≈3.3, ota ≈3.6 (overall mean ≈3.3), capped
+  at 21. `party_size` λ is keyed to room class — larger rooms draw larger parties: Standard
+  ≈2.1, Deluxe ≈2.3, Suite ≈2.7, Penthouse ≈2.8 (overall mean ≈2.3), capped at 6.
 - **Ancillary spend scales with stay.** Service-order count ~ Poisson(0.9 × nights) — longer
   stays accrue more entries. The catalog mixes discretionary spend (Breakfast, Spa, Dining,
   Room Service, Minibar, Laundry) with recurring stay fees (Internet, Television, Parking).
+  Menu demand is **popularity-weighted, not uniform**: breakfast ≈0.20 / internet ≈0.16 /
+  parking ≈0.14 are everyday buys, spa ≈0.04 / laundry ≈0.05 occasional. Line `quantity` is
+  right-skewed — 1 (≈0.70) / 2 (≈0.24) / 3 (≈0.06).
 - **Upgrades are a discounted upsell, concentrated in direct bookings.** ~15% of eligible
   stays upgrade (Penthouse stays excluded), but the rate is keyed to the booking channel:
   direct 0.25 / walk_in 0.15 / corporate 0.14 / ota 0.08 — so the upsell is a direct-channel
@@ -82,9 +94,11 @@ update the matching line below in the same change.
   `scenarios/extensions-outnumber-early-checkouts.md`.
 - **Location pricing.** Per-property nightly-rate multiplier ~ Normal(1.0, 0.12).
 - **Seasonal arrivals.** Check-ins follow a repeating annual season with a summer peak and
-  winter trough — a day-of-year cosine (amplitude 0.23, peak mid-July) gives summer:winter
-  ≈ 1.6×, recurring across the ~3-year window; `booked_date = check_in − lead_days` so the
-  peak lands on arrivals. See `scenarios/check-ins-peak-in-summer.md`.
+  winter trough — a day-of-year cosine (amplitude 0.23, peak mid-July) gives a peak-day:
+  trough-day ratio of `(1 + 0.23)/(1 − 0.23) ≈ 1.6×`; averaged into calendar months the
+  observed summer:winter ratio is ≈1.5×, recurring across the ~3-year window;
+  `booked_date = check_in − lead_days` so the peak lands on arrivals. See
+  `scenarios/check-ins-peak-in-summer.md`.
 
 ## Deliberate simplifications (intended — do not "fix")
 
@@ -107,11 +121,17 @@ update the matching line below in the same change.
   a stay may show zero or several, rather than exactly one per night.
 - Bookings aren't constrained by physical room inventory; only `demand_forecast` occupancy is
   capped at `total_rooms`.
+- **Arrivals have no day-of-week structure.** Check-ins are weighted by day-of-*year* (the
+  summer season) but drawn flat across the day of the week — real hotels see a weekend-leisure /
+  midweek-business arrival rhythm this data omits. (A candidate to promote into a new scenario.)
+- **Upgrades are always dated on the arrival day.** Every `room_upgrades.upgrade_date` equals
+  the stay's check-in — the upsell is modeled as a front-desk sale at check-in, so there is no
+  at-booking or mid-stay upgrade timing. The fee still bills over the full stay `nights`.
 
 ## How to review
 
 ```sql
--- OTA is the largest channel (≈ 0.44)
+-- OTA is the largest channel (≈ 0.45)
 select channel, count(*) * 1.0 / sum(count(*)) over () as share
 from reservations group by channel order by share desc;    -- ota on top
 

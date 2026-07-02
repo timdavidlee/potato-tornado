@@ -4,18 +4,18 @@ model: opus
 ---
 
 Design a brand-new **collection** and capture it as a proposal doc. This is the
-*docs-first* step, one level up from [`/scenario:propose`](scenario/propose.md): pick a
+*docs-first* step, one level up from [`/scenario:propose`](../scenario/propose.md): pick a
 domain worth teaching, shape it into a concrete set of related tables with realistic
 distributions and referential integrity, and write the markdown answer key for the whole
 collection. It does **not** create the `collections/<name>/` package, write any
 `build_<table>`, call `register(...)`, touch `_BUILTIN_MODULES`, or add tests — that
 implementation step comes later, driven by the doc this command produces.
 
-Read [collections/CLAUDE.md](../../src/potato_tornado/collections/CLAUDE.md) first — it
+Read [collections/CLAUDE.md](../../../src/potato_tornado/collections/CLAUDE.md) first — it
 defines the package layout, the scenario doc template, the realism-guidance rubric, and the
 "Adding a collection" checklist your proposal should be implementable against. Follow
-[.claude/rules/python-style.md](../rules/python-style.md) and the determinism/`ctx`
-conventions in [CLAUDE.md](../../CLAUDE.md) where relevant.
+[.claude/rules/python-style.md](../../rules/python-style.md) and the determinism/`ctx`
+conventions in [CLAUDE.md](../../../CLAUDE.md) where relevant.
 
 ## 1. Read `$ARGUMENTS`
 
@@ -32,7 +32,7 @@ conventions in [CLAUDE.md](../../CLAUDE.md) where relevant.
 A new collection is only worth proposing if it teaches something the current set doesn't
 already cover, and if it can be built on the existing core.
 
-- Read the **Built-in collections** table in [README.md](../../README.md) and skim each
+- Read the **Built-in collections** table in [README.md](../../../README.md) and skim each
   existing `collections/<name>/__init__.py` to see the domains, table shapes, and signals
   already taught. Don't propose a near-duplicate of `labor`, `hotel`, `clinic`, or
   `streaming` — aim for a distinct workflow / distribution story.
