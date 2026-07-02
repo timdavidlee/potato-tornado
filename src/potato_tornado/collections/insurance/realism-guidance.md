@@ -13,7 +13,11 @@ update the matching line below in the same change.
 
 - **Referential integrity.** `policies.policyholder_id ∈ policyholders`,
   `policies.broker_id ∈ brokers`, `claims.policy_id ∈ policies`,
-  `claim_payments.claim_id ∈ claims`.
+  `claims.adjuster_id ∈ adjusters`, `claim_payments.claim_id ∈ claims`,
+  `quotes.policyholder_id ∈ policyholders`, and every non-null `quotes.policy_id ∈ policies`.
+- **Quote ↔ policy linkage.** A quote's `policy_id` is non-null **iff** `converted` is true;
+  each policy has exactly **one** converting quote (`policy_id` is unique among converted
+  quotes), and a converting quote's `quote_date ≤ policies.start_date`.
 - **Payment exists iff settled.** A `claim_payments` row exists for a claim **iff** that
   claim's `status ∈ {approved, partial}`. Denied and open claims have no payment; there is at
   most one payment per claim (`claim_payments` is 1:1 with settled claims).
@@ -27,13 +31,24 @@ update the matching line below in the same change.
 - **Catalogs are fixed.** `policyholders.risk_tier ∈ {preferred, standard, high_risk}`;
   `policies.product ∈ {auto, home, renters}`; `claims.peril ∈ PERILS`;
   `claims.status ∈ {open, approved, partial, denied}`;
-  `policies.status ∈ {active, lapsed, cancelled}`.
+  `policies.status ∈ {active, lapsed, cancelled}`;
+  `adjusters.team ∈ {auto, property, liability, catastrophe}`;
+  `adjusters.seniority ∈ {junior, senior, lead}`; `quotes.product ∈ {auto, home, renters}`.
 
 ## Distributions & mixes (should look like the real world)
 
-- **Row counts (`scale=1.0`).** `brokers` = 40, `policyholders` = 4000, `policies` = 5000
-  (a holder may hold more than one), `claims` ≈ 620 (frequency-derived, ~11% of policies),
-  `claim_payments` ≈ 490 (~79% of claims — the settled share).
+- **Row counts (`scale=1.0`).** `brokers` = 40, `adjusters` = 40, `policyholders` = 4000,
+  `policies` = 5000 (a holder may hold more than one), `quotes` = 12,500 (one converting quote
+  per policy + non-converting; conversion ≈ 0.40), `claims` ≈ 620 (frequency-derived, ~11% of
+  policies), `claim_payments` ≈ 490 (~79% of claims — the settled share).
+- **Adjuster assignment.** Each claim's `adjuster_id` is drawn **uniformly** over the 40
+  adjusters — no per-adjuster load or performance signal (mirrors `broker_id`). `team` ≈ auto
+  0.40 / property 0.30 / liability 0.20 / catastrophe 0.10; `seniority` ≈ junior 0.50 / senior
+  0.35 / lead 0.15 (both small-n, so noisy at `scale < 1`).
+- **Quote conversion.** Overall ≈ **0.40** of quotes convert to a policy, drawn **independent**
+  of premium and product (conversion is ~flat across premium quartiles). A converting quote is
+  priced within ±5% of the bound `annual_premium`; non-converting quotes bootstrap their
+  (product, premium) off a random policy, so the `quoted_premium` marginals match.
 - **Risk-tier mix.** preferred 0.45 / standard 0.40 / high_risk 0.15.
 - **Product mix.** auto 0.50 / home 0.30 / renters 0.20.
 - **annual_premium.** Lognormal (σ ≈ 0.4) whose median is the product base × tier multiplier,
@@ -92,6 +107,13 @@ update the matching line below in the same change.
 - **`broker_id` and `region` carry no signal** — brokers don't influence premium, claim
   frequency, or loss ratio; the broker dim exists for join practice, not a producer-performance
   scenario (a natural future addition).
+- **`adjuster_id` carries no signal** — assignment is uniform, so settlement time, partial rate,
+  and caseload are flat across adjusters and teams. The dim is for join/rollup practice; a
+  handler-level performance outlier is a candidate scenario, not planted here.
+- **Quote conversion carries no signal** — `converted` is drawn independent of `quoted_premium`
+  and `product`, so the conversion rate is ~flat (no price-elasticity funnel). The `quotes`
+  table gives an upstream sales stage to join through; a premium/product-driven conversion
+  signal is a candidate scenario, not planted here.
 - **Cold-start book** — the in-force grows from zero at the window's `start_date` (no
   backdated policies), so total claim volume ramps up ≈ 2.3× across the three years purely
   because more policies are in force, not because per-policy frequency changes. Per-policy
@@ -134,4 +156,17 @@ join claims c using (claim_id)
 join policies p using (policy_id)
 join policyholders ph using (policyholder_id)
 group by ph.risk_tier order by loss_ratio;
+
+-- quote funnel: ~40% convert, and the linkage is consistent (expect conv_rate ≈ 0.40, bad = 0)
+select avg(converted::int)                                            as conv_rate,  -- ≈ 0.40
+       count(*) filter (where converted <> (policy_id is not null))   as bad          -- expect 0
+from quotes;
+
+-- adjuster assignment is flat: settlement time shouldn't vary by adjuster (spread ≈ 0)
+select stddev(mean_days) as across_adjuster_spread  -- small; no handler signal
+from (
+  select c.adjuster_id, avg(pay.paid_date - c.claim_date) as mean_days
+  from claims c join claim_payments pay using (claim_id)
+  group by c.adjuster_id
+) t;
 ```

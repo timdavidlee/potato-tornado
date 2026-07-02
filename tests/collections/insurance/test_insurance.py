@@ -161,3 +161,50 @@ def test_reported_amount_and_premium_are_positive(insurance: dict[str, pl.DataFr
     reported_ok = insurance["claims"].filter(pl.col("reported_amount") <= 0).height == 0
     premium_ok = insurance["policies"].filter(pl.col("annual_premium") <= 0).height == 0
     assert reported_ok and premium_ok
+
+
+def test_claims_reference_adjusters(insurance: dict[str, pl.DataFrame]) -> None:
+    adjuster_ids = set(insurance["adjusters"]["adjuster_id"].to_list())
+    assert set(insurance["claims"]["adjuster_id"].to_list()) <= adjuster_ids
+
+
+def test_adjuster_team_in_catalog(insurance: dict[str, pl.DataFrame]) -> None:
+    teams = set(insurance["adjusters"]["team"].to_list())
+    assert teams <= {"auto", "property", "liability", "catastrophe"}
+
+
+def test_quotes_reference_policyholders(insurance: dict[str, pl.DataFrame]) -> None:
+    holder_ids = set(insurance["policyholders"]["policyholder_id"].to_list())
+    assert set(insurance["quotes"]["policyholder_id"].to_list()) <= holder_ids
+
+
+def test_converted_quotes_reference_policies(insurance: dict[str, pl.DataFrame]) -> None:
+    policy_ids = set(insurance["policies"]["policy_id"].to_list())
+    linked = insurance["quotes"].filter(pl.col("policy_id").is_not_null())["policy_id"].to_list()
+    assert set(linked) <= policy_ids
+
+
+def test_quote_converted_iff_policy_id_present(insurance: dict[str, pl.DataFrame]) -> None:
+    quotes = insurance["quotes"]
+    mismatched = quotes.filter(pl.col("converted") != pl.col("policy_id").is_not_null())
+    assert mismatched.height == 0
+
+
+def test_one_converting_quote_per_policy(insurance: dict[str, pl.DataFrame]) -> None:
+    converted = insurance["quotes"].filter(pl.col("converted"))
+    assert converted["policy_id"].n_unique() == insurance["policies"].height
+
+
+def test_converting_quote_precedes_policy_start(insurance: dict[str, pl.DataFrame]) -> None:
+    dated = (
+        insurance["quotes"]
+        .filter(pl.col("converted"))
+        .join(insurance["policies"].select("policy_id", "start_date"), on="policy_id")
+    )
+    assert dated.filter(pl.col("quote_date") > pl.col("start_date")).height == 0
+
+
+def test_quote_conversion_rate_near_target(insurance: dict[str, pl.DataFrame]) -> None:
+    quotes = insurance["quotes"]
+    rate = quotes.filter(pl.col("converted")).height / quotes.height
+    assert 0.38 < rate < 0.42

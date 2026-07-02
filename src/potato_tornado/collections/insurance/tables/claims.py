@@ -4,7 +4,8 @@ Most policies produce **zero** claims; a few produce one or more. Per-policy cla
 count is Poisson with a rate that scales by the holder's risk tier and the policy
 term, so high-risk policies file far more often. Each claim carries a right-skewed
 ``reported_amount`` (the severity half) and an adjudication ``status``; only
-settled claims get a `claim_payments` row.
+settled claims get a `claim_payments` row. Each claim is assigned an ``adjuster_id``
+uniformly at random (like `broker_id`, the handler carries no built-in signal).
 """
 
 from __future__ import annotations
@@ -73,6 +74,11 @@ def build_claims(ctx: GenContext) -> pl.DataFrame:
         2,
     )
 
+    # Assign a handling adjuster uniformly. A dedicated child stream keeps the peril
+    # and status draws (off `ctx.dist`) byte-identical to a run without adjusters.
+    adjuster_ids = ctx.table("adjusters")["adjuster_id"].to_list()
+    adjuster_idx = ctx.rng.child("adjuster").numpy.integers(0, len(adjuster_ids), total)
+
     return pl.DataFrame(
         {
             "claim_id": [f"CLM-{i:07d}" for i in range(1, total + 1)],
@@ -81,5 +87,6 @@ def build_claims(ctx: GenContext) -> pl.DataFrame:
             "peril": ctx.dist.choice(total, PERILS),
             "reported_amount": reported_amount,
             "status": ctx.dist.choice(total, _STATUSES, _STATUS_WEIGHTS),
+            "adjuster_id": [adjuster_ids[i] for i in adjuster_idx],
         }
     )

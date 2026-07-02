@@ -10,8 +10,10 @@ claim costs (a heavy right-skew severity) — with a portfolio-level loss ratio
 Tables
 ------
 - ``brokers``        : the selling-broker dim.
+- ``adjusters``      : the claims-handler dim.
 - ``policyholders``  : the insured parties, each with a risk tier.
 - ``policies``       : one policy sold per row — the premium side (the plan).
+- ``quotes``         : pre-bind quotes upstream of policies; most never convert.
 - ``claims``         : the filings — frequency x severity; most policies produce none.
 - ``claim_payments`` : the payout (the actual), one row per settled claim.
 
@@ -22,11 +24,13 @@ the intended analytical signals in ``scenarios/``.
 from __future__ import annotations
 
 from potato_tornado.collections.insurance.tables import (
+    build_adjusters,
     build_brokers,
     build_claim_payments,
     build_claims,
     build_policies,
     build_policyholders,
+    build_quotes,
 )
 from potato_tornado.core.collection import Collection, TableSpec
 from potato_tornado.core.registry import register
@@ -40,6 +44,7 @@ def build() -> Collection:
         "measured by its loss ratio — a frequency-severity model with loss ratio by risk tier.",
         tables=(
             TableSpec("brokers", build_brokers, description="Selling-broker dim."),
+            TableSpec("adjusters", build_adjusters, description="Claims-handler dim."),
             TableSpec(
                 "policyholders",
                 build_policyholders,
@@ -52,9 +57,15 @@ def build() -> Collection:
                 description="One policy sold per row — premium, coverage, deductible.",
             ),
             TableSpec(
+                "quotes",
+                build_quotes,
+                depends_on=("policies", "policyholders"),
+                description="Pre-bind quotes; one converting quote per policy plus non-converting.",
+            ),
+            TableSpec(
                 "claims",
                 build_claims,
-                depends_on=("policies", "policyholders"),
+                depends_on=("policies", "policyholders", "adjusters"),
                 description="The filings — frequency x severity; most policies produce none.",
             ),
             TableSpec(

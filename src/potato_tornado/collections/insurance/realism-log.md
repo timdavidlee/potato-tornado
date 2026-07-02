@@ -26,6 +26,17 @@ sub-population; residual items are documented deliberate simplifications (open i
   product+tier cell; added a **weak** premium↔coverage (+) / premium↔deductible (−) co-movement
   (centred on the weighted mean so tier medians are unchanged), so the sub-population is no
   longer flat. Both documented in the rubric. (`e27dc41`, `4233197`)
+- **2026-07-02 — Two new tables from the backlog: `adjusters` + `quotes`.** Realised the two
+  clean-joining candidates from `TODO.md`. `adjusters` — a 40-row claims-handler dim, with a
+  **uniform** `claims.adjuster_id` FK drawn from a dedicated `child("adjuster")` stream so the
+  existing peril/status draws (and all claim/payment numerics) stay byte-identical. `quotes` —
+  an upstream sales stage: one converting quote per policy (priced within ±5% of the bound
+  premium, `quote_date ≤ start_date`) plus non-converting shopping quotes to a ~**0.40**
+  conversion rate, nullable `policy_id` FK. Both assignments are **signal-free** (adjuster load
+  flat; conversion flat vs premium/product) — the operational and funnel signals are left as
+  scenario candidates, not planted. Pinned 8 invariant tests (referential integrity, `converted`
+  ⇔ `policy_id`, one-quote-per-policy, quote precedes start, conversion rate) and reconciled the
+  rubric (row counts, catalogs, the two "carries no signal" simplifications).
 
 ## Field-enrichment runs
 
@@ -33,3 +44,20 @@ sub-population; residual items are documented deliberate simplifications (open i
   backlog (6 quick wins + 5 high-leverage, several scenario-bearing — incl. a broker
   producer-performance signal and a `catastrophe_flag` severity coupling) to
   [`TODO.md`](TODO.md). No columns implemented yet — the backlog is the open work.
+- **2026-07-02 — Field-enrichment survey (follow-up curation).** Re-checked the live schema
+  against the backlog and added the two P&C domains it was missing — **fraud / SIU referral**
+  (`claims.fraud_flag`) and **litigation** (`claims.litigated`), both scenario-bearing — plus
+  three compositional quick wins (`policyholders.state`, a derivable `policies.bundled`,
+  `policies.auto_renew`) and a `subrogation_recovery_amount` item gated on `at_fault`. Backlog
+  now 9 quick wins + 7 high-leverage; still nothing implemented. All buildable from existing
+  `ctx` primitives (`bernoulli` / `choice`) — no new `core/distributions.py` helper required.
+- **2026-07-02 — New-table survey.** First pass of the extended
+  `/data-collection:suggest-analytic-fields` (now also proposes new tables *within* the
+  collection). Added a **Candidate new tables** section to [`TODO.md`](TODO.md): three
+  clean-joining tables — **`adjusters`** dim (promotes the existing `adjuster_id` column idea;
+  claims-ops signal), **`quotes`** fact (quote-to-bind funnel), and **`premium_billing`**
+  instalments (delinquency; sums to `annual_premium`) — all buildable with existing `ctx`
+  primitives. Plus three flagged as **contradicting a deliberate simplification** (not proposed
+  blindly): `claim_status_history` (vs one-payout-per-claim), `coverage_lines` (vs the
+  single-limit payout arithmetic), and `reinsurance_treaties` (vs pure paid÷premium; closer to
+  a new collection). Nothing implemented — the backlog is the open work.
