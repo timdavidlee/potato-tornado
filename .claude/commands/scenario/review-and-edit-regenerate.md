@@ -1,5 +1,5 @@
 ---
-description: Realize a scenario doc — measure the signal, tune the tables/ generators to plant it, regenerate to confirm, and write the scenario test that asserts it
+description: Realize a scenario doc — measure the signal, tune the tables/ generators to plant it, regenerate to confirm, and write the scenario test that asserts it. With no scenario named, round-robins the next unrealized scenario (or a collection to scope the rotation).
 model: opus
 ---
 
@@ -19,10 +19,31 @@ Read the "Scenarios: the intended signals" section of
 
 ## 1. Resolve the target
 
-`$ARGUMENTS` names the scenario — a slug or path like `labor/no-show-rate`, or
-`overtime-right-skew`. Identify the **collection** and the **signal** and locate its doc at
-`collections/<name>/scenarios/<slug>.md`. If the collection is ambiguous or the target
-tables aren't clear, ask before writing anything — don't guess which tables to touch.
+`$ARGUMENTS` may name a specific scenario, name only a collection, or be empty. Resolve it
+to a single target scenario:
+
+- **A specific scenario** — a slug or path like `labor/no-show-rate` or `overtime-right-skew`.
+  Identify the **collection** and the **signal** and locate its doc at
+  `collections/<name>/scenarios/<slug>.md`.
+- **A collection only** (e.g. `clinic`) — **round-robin within that collection**: pick the
+  next scenario that still needs work (see *Round-robin selection* below).
+- **Empty** — **round-robin across all collections**. If exactly one collection has
+  unrealized scenarios, use it; if several do, prefer the collection named most recently in
+  the conversation, and otherwise ask which one before selecting.
+
+If the collection is ambiguous or the target tables aren't clear, ask before writing
+anything — don't guess which tables to touch.
+
+**Round-robin selection.** Enumerate the in-scope `scenarios/*.md` docs in a stable order
+(alphabetical by `<collection>/<slug>`) and pick the **first that is not yet realized** — a
+scenario counts as *not realized* if its doc still flags a **Magnitude** as "to be planted"
+**or** no test under `tests/collections/<name>/` asserts its signal. Realize exactly **one**
+scenario per run (the classic round-robin turn), not the whole backlog — unless the user
+explicitly asks for all of them. If **every** in-scope scenario is already realized, don't
+invent a new signal: say so, then re-verify the first scenario in the stable order (or one
+the user names) as a no-op pass — measure it, confirm the doc magnitude and test still hold,
+and report. Either way, name the scenario you picked and list the ones still unrealized in
+step 6 so the next no-argument run advances to the following one.
 
 ## 2. Ground-truth the current data
 
@@ -103,7 +124,8 @@ Run the full gate and fix anything it flags:
 uv run ruff format && uv run ruff check && uv run pyright && uv run pytest
 ```
 
-Then summarize: the signal and its final magnitude, which `tables/` modules you edited (or
-that none needed editing), the test you added (`file:line`), and the docs you wrote/updated
-(the scenario doc and any `realism-guidance.md` reconciliation).
+Then summarize: the scenario you targeted (and, if you round-robined, that you picked it and
+which scenarios remain unrealized), the signal and its final magnitude, which `tables/`
+modules you edited (or that none needed editing), the test you added (`file:line`), and the
+docs you wrote/updated (the scenario doc and any `realism-guidance.md` reconciliation).
 If a design choice was genuinely ambiguous, surface it as a question rather than guessing.

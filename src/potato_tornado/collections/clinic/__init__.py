@@ -52,7 +52,7 @@ def build() -> Collection:
             TableSpec(
                 "appointments",
                 build_appointments,
-                depends_on=("patients", "slots"),
+                depends_on=("patients", "slots", "providers"),
                 description="Bookings that fill a slot, with a visit type and status.",
             ),
             TableSpec(

@@ -19,6 +19,14 @@ from potato_tornado.core.collection import GenContext
 _SCHEDULED_MIN = {v[0]: v[2] for v in VISIT_TYPES}
 _OVERRUN_BIAS = {v[0]: v[4] for v in VISIT_TYPES}
 
+# Arrival delay vs. time of day. The clinic runs behind as the session wears on:
+# an appointment's mean minutes-late grows linearly with its scheduled hour. The
+# pivot (≈ 9:00) is where the clinic is on time; the slope adds ≈ 1.6 min/hour, so
+# by late afternoon patients wait ≈ 10+ min. Centred so the overall mean stays
+# ≈ 3 min given the late-morning peak. See ``scenarios/clinic-runs-late.md``.
+_ARRIVAL_SLOPE = 1.6
+_ARRIVAL_PIVOT_HOUR = 9.0
+
 
 def build_visits(ctx: GenContext) -> pl.DataFrame:
     completed = ctx.table("appointments").filter(pl.col("status") == "completed")
@@ -32,8 +40,14 @@ def build_visits(ctx: GenContext) -> pl.DataFrame:
         max(5, round(s * (1 + b + z)))
         for s, b, z in zip(scheduled_minutes, bias, noise, strict=True)
     ]
-    # Patients skew a few minutes late; occasional early arrivals, rare long delays.
-    arrival_delay_min = np.clip(ctx.dist.normal(n, mean=3.0, sd=6.0), -15, 45).round().astype(int)
+    # Patients skew late, and the clinic falls further behind through the day: mean
+    # delay grows with the appointment's scheduled hour (occasional early arrivals,
+    # rare long delays).
+    hour = completed["scheduled_at"].dt.hour().to_numpy()
+    delay_mean = _ARRIVAL_SLOPE * (hour - _ARRIVAL_PIVOT_HOUR)
+    arrival_delay_min = (
+        np.clip(ctx.dist.normal(n, mean=0.0, sd=5.0) + delay_mean, -15, 45).round().astype(int)
+    )
 
     return pl.DataFrame(
         {

@@ -17,13 +17,23 @@ import polars as pl
 
 from potato_tornado.core.collection import GenContext
 
+# Seasonal + growth shape for slot volume. Slot days are drawn with a per-day
+# weight (seasonal cycle times an upward trend) rather than uniformly, so booked
+# appointment volume has a repeating winter peak and drifts up year over year --
+# see ``scenarios/seasonal-and-growth.md``. Amplitude 0.16 lands Dec-Feb volume at
+# ~1.3x the Jun-Aug trough; the 0.08 trend adds ~8%/year.
+_SEASONAL_AMPLITUDE = 0.16
+_ANNUAL_GROWTH = 0.08
+_WINTER_PEAK_DOY = 15  # seasonal peak ≈ mid-January
+
 
 def build_slots(ctx: GenContext) -> pl.DataFrame:
     providers = ctx.table("providers")["provider_id"].to_list()
     n = ctx.n(6000)
 
     business_days = _business_days(ctx.config.start_date, ctx.config.end_date)
-    day_idx = ctx.dist.integers(n, 0, len(business_days) - 1)
+    day_weights = _calendar_weights(business_days, ctx.config.start_date)
+    day_idx = ctx.rng.numpy.choice(len(business_days), size=n, p=day_weights)
     days = np.array([business_days[int(i)] for i in day_idx], dtype=object)
     clock = ctx.dist.times_of_day(n, peak_hour=11.0, spread_hours=3.0)
     slot_at = ctx.dist.combine(days, clock)
@@ -44,6 +54,22 @@ def build_slots(ctx: GenContext) -> pl.DataFrame:
             "is_booked": is_booked,
         }
     )
+
+
+def _calendar_weights(business_days: list[date], start: date) -> np.ndarray:
+    """Per-business-day sampling weight: a winter-peaking seasonal cycle times an
+    upward year-over-year growth trend, normalised to sum to 1.
+
+    Weighting slot generation this way (rather than drawing days uniformly) gives
+    booked-appointment volume a repeating winter peak and a gentle upward drift —
+    the temporal signal in ``scenarios/seasonal-and-growth.md``.
+    """
+    doy = np.array([d.timetuple().tm_yday for d in business_days], dtype=float)
+    seasonal = 1.0 + _SEASONAL_AMPLITUDE * np.cos(2 * np.pi * (doy - _WINTER_PEAK_DOY) / 365.25)
+    elapsed_years = np.array([(d - start).days for d in business_days], dtype=float) / 365.25
+    growth = (1.0 + _ANNUAL_GROWTH) ** elapsed_years
+    weights = seasonal * growth
+    return weights / weights.sum()
 
 
 def _business_days(start: date, end: date) -> list[date]:
