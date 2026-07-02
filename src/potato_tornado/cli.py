@@ -81,6 +81,56 @@ def generate_cmd(
         typer.echo(f"  {table_name:<20} {df.height:>10,} rows")
 
 
+@app.command("seed")
+def seed_cmd(
+    dsn: str = typer.Argument(
+        ..., help="Postgres DSN, e.g. 'postgresql://user:pass@localhost:5432/teaching'."
+    ),
+    collection: list[str] | None = typer.Option(
+        None,
+        "--collection",
+        "-c",
+        help="Collection to seed (repeatable). Omit to seed every registered collection.",
+    ),
+    seed: int = typer.Option(42, help="Master seed for reproducibility."),
+    scale: float = typer.Option(1.0, help="Row-count multiplier (1.0 = reference size)."),
+    start: datetime = typer.Option(
+        datetime(2022, 1, 1), formats=["%Y-%m-%d"], help="Event window start (YYYY-MM-DD)."
+    ),
+    end: datetime = typer.Option(
+        datetime(2025, 1, 1), formats=["%Y-%m-%d"], help="Event window end (YYYY-MM-DD)."
+    ),
+    pool: Path | None = typer.Option(
+        None, "--pool", help="Entity-pool directory to sample from (built via `build-pool`)."
+    ),
+) -> None:
+    """Seed collections into a Postgres database, one schema per collection.
+
+    Requires the ``postgres`` extra (``uv sync --extra postgres``). Each collection lands in
+    its own schema named after the collection, so ``hotel.reservations``, ``labor.employees``
+    live side by side in one database.
+    """
+    from potato_tornado.sinks.postgres_sink import PostgresSink
+
+    names = collection or [c.name for c in iter_collections()]
+    config = GenerationConfig(
+        seed=seed, scale=scale, start_date=start.date(), end_date=end.date(), pool_dir=pool
+    )
+    try:
+        for name in names:
+            with PostgresSink(dsn, schema=name) as sink:
+                tables = generate_to_sink(name, sink, config)
+            typer.secho(
+                f"Seeded schema '{name}' ({len(tables)} tables)",
+                fg=typer.colors.GREEN,
+                bold=True,
+            )
+    except ModuleNotFoundError as exc:  # pragma: no cover - depends on the postgres extra
+        raise typer.BadParameter(
+            "seed requires the 'postgres' extra: uv sync --extra postgres"
+        ) from exc
+
+
 @app.command("build-pool")
 def build_pool_cmd(
     out: Path = typer.Argument(..., help="Directory to write the entity pool into."),

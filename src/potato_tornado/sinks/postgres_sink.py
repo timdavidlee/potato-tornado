@@ -14,12 +14,14 @@ class PostgresSink:
 
     Args:
         dsn: SQLAlchemy-style connection URI, e.g.
-            ``postgresql://user:pass@localhost:5432/teaching``.
+            ``postgresql://user:pass@localhost:5432/teaching``. A bare
+            ``postgresql://`` / ``postgres://`` scheme is routed to the psycopg 3
+            driver shipped by the ``postgres`` extra (see :func:`_normalize_dsn`).
         schema: Target schema; created if missing.
     """
 
     def __init__(self, dsn: str, schema: str = "public") -> None:
-        self.dsn = dsn
+        self.dsn = _normalize_dsn(dsn)
         self.schema = schema
         self._engine: object | None = None
 
@@ -59,3 +61,18 @@ class PostgresSink:
 def _validate_identifier(name: str) -> None:
     if not name or not all(c.isalnum() or c == "_" for c in name):
         raise ValueError(f"unsafe table name: {name!r}")
+
+
+def _normalize_dsn(dsn: str) -> str:
+    """Route a bare ``postgresql://`` / ``postgres://`` DSN to the installed psycopg 3 driver.
+
+    SQLAlchemy maps the bare ``postgresql://`` scheme to the *psycopg2* dialect, which this
+    package deliberately does not depend on — the ``postgres`` extra ships psycopg **3**. Rewrite
+    such DSNs to the explicit ``postgresql+psycopg://`` form so the installed driver is selected;
+    a DSN that already names a driver (``postgresql+psycopg://``, ``postgresql+asyncpg://``, …) is
+    returned unchanged.
+    """
+    for prefix in ("postgresql://", "postgres://"):
+        if dsn.startswith(prefix):
+            return "postgresql+psycopg://" + dsn[len(prefix) :]
+    return dsn

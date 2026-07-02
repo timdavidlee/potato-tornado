@@ -219,3 +219,6 @@ __marimo__/
 
 # Local cache for generated data (see CLAUDE.md)
 working_cache/
+
+# Local git worktrees created by parallel agent sessions
+.claude/worktrees/
