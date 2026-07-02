@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import numpy as np
 import polars as pl
@@ -14,6 +14,7 @@ from potato_tornado.collections.hotel.constants import (
     ROOM_TYPES,
 )
 from potato_tornado.core.collection import GenContext
+from potato_tornado.core.rng import Rng
 
 # Booking channel depends on room class. Guests booking the upper tiers skew to
 # direct (loyalty / concierge), the mass-market tiers skew to the OTA — so OTA
@@ -23,9 +24,16 @@ _CHANNEL_WEIGHTS_LOWER = {"direct": 0.28, "ota": 0.50, "corporate": 0.16, "walk_
 _CHANNEL_WEIGHTS_UPPER = {"direct": 0.55, "ota": 0.22, "corporate": 0.18, "walk_in": 0.05}
 _UPPER_TIERS = ("Suite", "Penthouse")
 
+# Arrivals are seasonal: check-ins concentrate in summer and thin out in winter, the
+# same cycle repeating each year. A day's arrival weight is a cosine peaking on
+# ``_PEAK_DOY`` (mid-July); ``_SEASON_AMP`` sets the depth, so the busiest day of the
+# year draws ``(1 + amp) / (1 - amp)`` as many arrivals as the quietest.
+_PEAK_DOY = 196  # ~15 July
+_SEASON_AMP = 0.23  # → peak:trough ≈ 1.6:1
+
 
 def build_reservations(ctx: GenContext) -> pl.DataFrame:
-    n = ctx.n(3000)
+    n = ctx.n(24000)
     props = ctx.table("properties")["property_id"].to_list()
     type_names = [t[0] for t in ROOM_TYPES]
     type_weights = [t[2] for t in ROOM_TYPES]
@@ -33,11 +41,15 @@ def build_reservations(ctx: GenContext) -> pl.DataFrame:
     room_type = ctx.dist.choice(n, type_names, type_weights)
     channel = _sample_channel(ctx, room_type)
 
-    booked = ctx.dist.dates_between(n, ctx.config.start_date, ctx.config.end_date)
+    # Draw the arrival (check-in) date seasonally, then back out the booking date from
+    # the lead time — so the summer peak lands cleanly on check_in_date / occupancy.
+    check_in = _seasonal_arrivals(
+        ctx.rng.child("arrival"), n, ctx.config.start_date, ctx.config.end_date
+    )
     lead_days = np.clip(ctx.dist.lognormal(n, median=14, sigma=0.9), 0, 240).astype(int)
     nights = np.clip(ctx.dist.poisson(n, 2.2) + 1, 1, 21)
-    check_in = np.array(
-        [b + timedelta(days=int(lead)) for b, lead in zip(booked, lead_days, strict=True)],
+    booked = np.array(
+        [ci - timedelta(days=int(lead)) for ci, lead in zip(check_in, lead_days, strict=True)],
         dtype=object,
     )
     check_out = np.array(
@@ -71,3 +83,19 @@ def _sample_channel(ctx: GenContext, room_type: np.ndarray) -> np.ndarray:
     u = ctx.rng.child("channel").numpy.random(room_type.shape[0])
     idx = (u[:, None] < cum).argmax(axis=1)
     return np.asarray(CHANNELS, dtype=object)[idx]
+
+
+def _seasonal_arrivals(rng: Rng, n: int, start: date, end: date) -> np.ndarray:
+    """Sample ``n`` arrival dates in ``[start, end)`` weighted toward summer.
+
+    Each day's weight is ``1 + _SEASON_AMP * cos(2*pi*(day_of_year - _PEAK_DOY)/365.25)``,
+    so arrivals peak in mid-July and trough in winter, and the cycle repeats every
+    year the window spans. Drawn from an independent child stream so it doesn't shift
+    the other ``reservations`` columns' draws.
+    """
+    span = (end - start).days
+    days = [start + timedelta(days=o) for o in range(span)]
+    doy = np.array([d.timetuple().tm_yday for d in days], dtype=float)
+    weights = 1.0 + _SEASON_AMP * np.cos(2.0 * np.pi * (doy - _PEAK_DOY) / 365.25)
+    offsets = rng.numpy.choice(span, size=n, p=weights / weights.sum())
+    return np.array([start + timedelta(days=int(o)) for o in offsets], dtype=object)
