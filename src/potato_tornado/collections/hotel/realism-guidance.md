@@ -54,6 +54,10 @@ update the matching line below in the same change.
 - **Room-type mix & rate ladder.** Standard 0.55 ($95) → Deluxe 0.28 ($145) → Suite 0.12
   ($260) → Penthouse 0.05 ($480), before the per-property location multiplier.
 - **Reservation status.** honoured 0.82 / cancelled 0.14 / no_show 0.04.
+- **Booking volume & occupancy.** ~24,000 reservations across the 3-year window fill each
+  property to ≈10 occupied rooms/day on average (peaks ~25, always under capacity). The
+  double-digit occupancy is deliberate: it's what lets the forecast's ~10% MAPE show through
+  integer rounding — see `scenarios/forecast-tracks-actual-with-error.md`.
 - **Lead time.** Lognormal, median ≈14 days, right-skewed out to the 240-day cap.
 - **Length & party.** `nights` ~ Poisson(2.2)+1; `party_size` ~ Poisson(1.3)+1.
 - **Ancillary spend scales with stay.** Service-order count ~ Poisson(0.9 × nights) — longer
@@ -67,6 +71,10 @@ update the matching line below in the same change.
   extensions add 1–3 nights (10–25% premium). See
   `scenarios/extensions-outnumber-early-checkouts.md`.
 - **Location pricing.** Per-property nightly-rate multiplier ~ Normal(1.0, 0.12).
+- **Seasonal arrivals.** Check-ins follow a repeating annual season with a summer peak and
+  winter trough — a day-of-year cosine (amplitude 0.23, peak mid-July) gives summer:winter
+  ≈ 1.6×, recurring across the ~3-year window; `booked_date = check_in − lead_days` so the
+  peak lands on arrivals. See `scenarios/check-ins-peak-in-summer.md`.
 
 ## Deliberate simplifications (intended — do not "fix")
 
@@ -74,9 +82,10 @@ update the matching line below in the same change.
 - The forecast is `actual × noise` with **no systematic bias** (it tracks actual by
   construction, only the error *magnitude* varies by weekday/weekend) and no real forecasting
   model — see `scenarios/forecast-tracks-actual-with-error.md`.
-- **No seasonality or weekday/weekend rate variation** — nightly *rates* are flat over the
-  calendar (only the forecast error band varies by weekend, not price). (A strong candidate to
-  promote into a new scenario.)
+- **No weekday/weekend rate variation** — nightly *rates* are flat over the calendar (only the
+  forecast error band varies by weekend, not price). (A strong candidate to promote into a new
+  scenario.) Arrival *demand*, by contrast, is seasonal — see
+  `scenarios/check-ins-peak-in-summer.md`.
 - Status and room type are drawn independently, and channel depends only on room class (no
   channel-driven cancellation effects).
 - Guests are not deduplicated: every reservation is a fresh name, so there is no
