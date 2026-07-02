@@ -119,6 +119,30 @@ tables = generate("labor", GenerationConfig(pool_dir=Path("pool")))  # names dra
 Sampling is deterministic and keeps emails unique per table; omit `pool_dir` to
 generate entities from scratch instead.
 
+## Seeding Postgres
+
+Load collections into a Postgres database — **one schema per collection**, so
+`hotel.reservations` and `labor.employees` live side by side in one database.
+Requires the `postgres` extra:
+
+```bash
+uv sync --extra postgres
+uv run potato-tornado seed postgresql://user:pass@localhost:5432/teaching   # all collections
+uv run potato-tornado seed postgresql://... -c hotel -c labor --scale 2     # a subset
+```
+
+A bare `postgresql://` DSN is routed to the psycopg 3 driver automatically. From
+Python, use `PostgresSink` directly (it takes the same DSN and a `schema`):
+
+```python
+from potato_tornado.core.config import GenerationConfig
+from potato_tornado.runner import generate_to_sink
+from potato_tornado.sinks.postgres_sink import PostgresSink
+
+with PostgresSink("postgresql://user:pass@localhost:5432/teaching", schema="hotel") as sink:
+    generate_to_sink("hotel", sink, GenerationConfig(seed=7))
+```
+
 ## Development
 
 ```bash

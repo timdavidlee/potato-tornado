@@ -30,7 +30,7 @@ src/potato_tornado/
                     open realism items)}
   sinks/            Sink protocol + DuckDBSink (core) and PostgresSink (extra)
   runner.py         generate() / generate_to_sink()
-  cli.py            Typer app: list / describe / generate / build-pool
+  cli.py            Typer app: list / describe / generate / seed / build-pool
 tests/
 ```
 
