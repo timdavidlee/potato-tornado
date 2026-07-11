@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import cast
 
 import polars as pl
@@ -56,3 +57,54 @@ def test_denied_claims_have_no_payment(insurance: dict[str, pl.DataFrame]) -> No
     denied = set(insurance["claims"].filter(pl.col("status") == "denied")["claim_id"].to_list())
     paid = set(insurance["claim_payments"]["claim_id"].to_list())
     assert denied.isdisjoint(paid)
+
+
+_DAYS_PER_MONTH = 30.4
+
+
+def _claims_per_inforce_by_year(frames: dict[str, pl.DataFrame]) -> pl.DataFrame:
+    """Per calendar year: raw claim count, in-force policy count, and their ratio.
+
+    A policy is "in force" in year Y when its term — ``start_date`` through
+    ``start_date + term_months * 30.4`` days — overlaps ``[Jan 1, Dec 31]`` of Y. One
+    row per year with columns ``year``, ``claims``, ``in_force``,
+    ``claims_per_inforce``, sorted ascending by year.
+    """
+    claims = frames["claims"].with_columns(pl.col("claim_date").dt.year().alias("year"))
+    raw = claims.group_by("year").agg(pl.len().alias("claims"))
+    policies = frames["policies"].with_columns(
+        (
+            pl.col("start_date")
+            + pl.duration(days=(pl.col("term_months") * _DAYS_PER_MONTH).round().cast(pl.Int64))
+        ).alias("term_end")
+    )
+    years = raw["year"].sort()
+    in_force = pl.DataFrame(
+        {
+            "year": years,
+            "in_force": [
+                policies.filter(
+                    (pl.col("start_date") <= date(y, 12, 31))
+                    & (pl.col("term_end") >= date(y, 1, 1))
+                ).height
+                for y in years
+            ],
+        }
+    )
+    return (
+        raw.join(in_force, on="year")
+        .with_columns((pl.col("claims") / pl.col("in_force")).alias("claims_per_inforce"))
+        .sort("year")
+    )
+
+
+def test_claim_frequency_flat_despite_rising_counts(insurance: dict[str, pl.DataFrame]) -> None:
+    by_year = _claims_per_inforce_by_year(insurance)
+    raw = by_year["claims"].to_list()
+    cpif = by_year["claims_per_inforce"].to_list()
+    # Raw counts ramp materially (64 -> 112, ~1.75x — the naive "book deteriorating" read),
+    # but once normalized by the in-force the per-policy frequency is flat (0.072-0.079,
+    # spread ~1.09): the rise is exposure growth, not rising risk.
+    raw_ramp = raw[-1] / raw[0]
+    freq_spread = max(cpif) / min(cpif)
+    assert raw_ramp > 1.4 and freq_spread < 1.25
