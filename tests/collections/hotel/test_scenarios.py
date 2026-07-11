@@ -110,3 +110,50 @@ def test_weekend_forecast_error_exceeds_weekday(hotel: dict[str, pl.DataFrame]) 
     )
     mape = dict(zip(by_kind["weekend"], by_kind["mape"], strict=True))
     assert mape[True] > 2 * mape[False]
+
+
+def test_over_capacity_concentrates_in_standard(hotel: dict[str, pl.DataFrame]) -> None:
+    # Over-capacity booking rate falls monotonically up the class ladder — the inversion of
+    # the party-size ladder — concentrating in Standards and vanishing at the Penthouse
+    # (seat 6, party_size capped at 6, so exactly zero). See
+    # scenarios/over-capacity-bookings-concentrate-in-standards.md.
+    cap = hotel["room_types"].select("room_type", "max_occupancy").unique()
+    rates = (
+        hotel["reservations"]
+        .join(cap, on="room_type")
+        .group_by("room_type")
+        .agg((pl.col("party_size") > pl.col("max_occupancy")).mean().alias("over_rate"))
+    )
+    over = dict(zip(rates["room_type"], rates["over_rate"], strict=True))
+    ladder = [over["Standard"], over["Deluxe"], over["Suite"], over["Penthouse"]]
+    assert ladder[0] > ladder[1] > ladder[2] > ladder[3] == 0.0 and ladder[0] - ladder[3] > 0.2
+
+
+def test_revpar_climbs_up_room_class_ladder(hotel: dict[str, pl.DataFrame]) -> None:
+    # RevPAR (revenue per available room-night) climbs monotonically up the ladder even as
+    # occupancy falls down it — the premium classes out-yield Standards despite lower
+    # occupancy. See scenarios/revpar-climbs-as-occupancy-falls.md.
+    span_days = (
+        hotel["reservations"]
+        .select((pl.col("check_in_date").max() - pl.col("check_in_date").min()).dt.total_days())
+        .item()
+    )
+    sold = (
+        hotel["stays"]
+        .group_by("room_type")
+        .agg(
+            pl.col("actual_nights").sum().alias("nights_sold"),
+            pl.col("room_revenue").sum().alias("rev"),
+        )
+    )
+    avail = hotel["room_types"].group_by("room_type").agg(pl.col("room_count").sum().alias("rooms"))
+    metrics = sold.join(avail, on="room_type").with_columns(
+        (pl.col("nights_sold") / (pl.col("rooms") * span_days)).alias("occupancy"),
+        (pl.col("rev") / (pl.col("rooms") * span_days)).alias("revpar"),
+    )
+    revpar = dict(zip(metrics["room_type"], metrics["revpar"], strict=True))
+    occ = dict(zip(metrics["room_type"], metrics["occupancy"], strict=True))
+    rp = [revpar["Standard"], revpar["Deluxe"], revpar["Suite"], revpar["Penthouse"]]
+    assert (
+        rp[0] < rp[1] < rp[2] < rp[3] and occ["Standard"] > occ["Penthouse"] and rp[3] > 2.5 * rp[0]
+    )

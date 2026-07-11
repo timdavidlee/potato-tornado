@@ -49,3 +49,26 @@ def test_late_tail_is_right_skewed_and_bounded(logistics: dict[str, pl.DataFrame
         (pl.col("status") == "delivered") & (pl.col("days_late") > 0)
     )["days_late"]
     assert 1 < cast(float, late.mean()) < 4 and cast(int, late.max()) <= 7
+
+
+def test_dim_weight_bound_parcels_are_about_half(logistics: dict[str, pl.DataFrame]) -> None:
+    s = logistics["shipments"]
+    dim_weight = s["length_cm"] * s["width_cm"] * s["height_cm"] / 5000.0
+    dim_bound_frac = cast(float, (dim_weight > s["weight_kg"]).mean())
+    assert 0.45 < dim_bound_frac < 0.58
+
+
+def test_signature_required_concentrates_in_fast_tiers(logistics: dict[str, pl.DataFrame]) -> None:
+    by_tier = (
+        logistics["shipments"]
+        .group_by("service_level")
+        .agg(pl.col("signature_required").mean().alias("sig_rate"))
+    )
+    rate = {
+        lvl: cast(float, r)
+        for lvl, r in zip(by_tier["service_level"], by_tier["sig_rate"], strict=True)
+    }
+    assert (
+        rate["ground"] < rate["express"] < rate["overnight"]
+        and rate["overnight"] >= 4 * rate["ground"]
+    )

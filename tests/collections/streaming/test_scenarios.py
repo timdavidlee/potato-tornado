@@ -118,3 +118,35 @@ def test_catalog_share_runs_from_us_widest_to_japan_narrowest(
     narrowest = min(shares, key=lambda r: shares[r])
     # US carries most of the catalogue (~0.87), Japan the least (~0.30): a ~2.9x gradient.
     assert widest == "US" and narrowest == "JP" and shares["US"] > 2.5 * shares["JP"]
+
+
+def test_us_arpu_is_a_premium_outlier(streaming: dict[str, pl.DataFrame]) -> None:
+    arpu = dict(
+        streaming["subscriptions"]
+        .join(streaming["subscribers"].select("subscriber_id", "region"), on="subscriber_id")
+        .group_by("region")
+        .agg((pl.col("mrr").sum() / pl.len()).alias("arpu"))
+        .iter_rows()
+    )
+    us = arpu.pop("US")
+    # US ARPU (~$15.6) is a lone premium outlier: it clears every non-US market (a tight
+    # ~$11.9-$12.6 band) by a wide margin, despite identical list prices everywhere.
+    assert us > 1.15 * max(arpu.values())
+
+
+def test_annual_books_lower_mrr_but_retains_better(streaming: dict[str, pl.DataFrame]) -> None:
+    by_cycle = {
+        cycle: (mean_mrr, cancel_rate)
+        for cycle, mean_mrr, cancel_rate in streaming["subscriptions"]
+        .group_by("billing_cycle")
+        .agg(
+            pl.col("mrr").mean().alias("mean_mrr"),
+            (pl.col("status") == "cancelled").mean().alias("cancel_rate"),
+        )
+        .iter_rows()
+    }
+    annual_mrr, annual_cancel = by_cycle["annual"]
+    monthly_mrr, monthly_cancel = by_cycle["monthly"]
+    # The lowest-MRR cohort is the stickiest: annual books less revenue per sub (~$11.3 vs
+    # ~$13.9) yet cancels far less (~0.06 vs ~0.21), so ranking cohorts by MRR inverts value.
+    assert annual_mrr < monthly_mrr and annual_cancel < monthly_cancel

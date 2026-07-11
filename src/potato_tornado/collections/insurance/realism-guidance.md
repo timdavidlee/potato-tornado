@@ -159,8 +159,8 @@ update the matching line below in the same change.
   full contractual term), the observed annual claim rate equals λ and claim volume tracks the
   in-force with **no pile-up at `end_date`** — claims-per-in-force is flat across the window
   (the final 90 days hold no more claims than the preceding 90). The book fills from zero at
-  `start_date`, so total claim volume still *ramps* over the three years (≈ 130 → 310 per
-  calendar year at `scale=1.0`) purely from a growing in-force, not from rising per-policy
+  `start_date`, so total claim volume still *ramps* over the three years (≈ 132 → 237 per
+  calendar year at `scale=1.0`, ~1.8×) purely from a growing in-force, not from rising per-policy
   frequency — see the cold-start note under Deliberate simplifications.
 - **reported_amount (the "severity" half).** Lognormal median ≈ **\$6.4k**, σ ≈ 1.0 → p95 ≈
   \$30k, max past \$50k. Independent of tier, product, and peril (a deliberate simplification).
@@ -256,7 +256,7 @@ update the matching line below in the same change.
   table gives an upstream sales stage to join through; a premium/product-driven conversion
   signal is a candidate scenario, not planted here.
 - **Cold-start book** — the in-force grows from zero at the window's `start_date` (no
-  backdated policies), so total claim volume ramps up ≈ 2.3× across the three years purely
+  backdated policies), so total claim volume ramps up ≈ 1.8× across the three years purely
   because more policies are in force, not because per-policy frequency changes. Per-policy
   frequency is flat over time (claims-per-in-force is constant); a YoY "claims are rising"
   read is an exposure-growth artifact, not a deteriorating book. Consequently

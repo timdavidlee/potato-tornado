@@ -69,3 +69,13 @@ def test_defective_leads_electronics_returns(retail: dict[str, pl.DataFrame]) ->
         .sort("len", descending=True)
     )
     assert electronics["reason"][0] == "defective"
+
+
+def test_shipping_revenue_concentrates_in_small_baskets(retail: dict[str, pl.DataFrame]) -> None:
+    charges = retail["order_charges"]
+    small = charges.filter(pl.col("merchandise") < 25)
+    order_share = small.height / charges.height
+    revenue_share = cast(float, small["shipping_fee"].sum()) / cast(
+        float, charges["shipping_fee"].sum()
+    )
+    assert order_share < 0.2 < 0.4 < revenue_share
