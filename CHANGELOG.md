@@ -1,3 +1,9 @@
+## v0.3.0 (2026-07-11)
+
+### Feat
+
+- **data-collection**: document and test 8 already-planted scenario signals
+
 ## v0.2.0 (2026-07-11)
 
 ### Feat
