@@ -13,13 +13,20 @@ update the matching line below in the same change.
 
 - **Referential integrity.** `orders.customer_id ∈ customers`;
   `order_items.order_id ∈ orders` and `order_items.product_id ∈ products`;
-  `returns.order_item_id ∈ order_items` and `returns.order_id ∈ orders`.
+  `returns.order_item_id ∈ order_items` and `returns.order_id ∈ orders`;
+  `order_charges.order_id ∈ orders`.
+- **Order-charges grain.** Exactly one `order_charges` row per order (`order_id` unique and
+  covers every order). `merchandise = round(Σ order_items.line_total, 2)` for that order — it
+  must reconcile to the fan-out. `shipping_fee` follows the threshold rule (0 when
+  `merchandise ≥ 50`, else 4.99 when `merchandise ≥ 25`, else 7.99);
+  `tax_amount = round(0.0725 × merchandise, 2)`. All three are ≥ 0.
 - **One return per line, at most.** `order_item_id` is unique in `returns` (a line is returned
   zero or one times, never split).
 - **Fan-out consistency.** `orders.item_count` equals the number of `order_items` rows for that
   order (`sum(item_count) == order_items.height`).
-- **Arithmetic identities.** `line_total = round(quantity × unit_price, 2)`;
-  `refund_amount ≤ line_total`.
+- **Arithmetic identities.** `line_total = round(quantity × unit_price, 2)` — kept **gross**
+  (pre-discount); `refund_amount ≤ line_total`. The net line value is the *derived* identity
+  `line_total × (1 − discount_pct)`, not a stored column.
 - **Temporal ordering.** `order_date ≥ customers.signup_date` for that customer;
   `return_date ≥ order_date`; both `order_date` and `return_date` fall within the run window.
 - **Non-negativity / bounds.** `quantity ∈ {1, 2, 3}`, `unit_price ∈ [1, 500]`,
@@ -32,24 +39,43 @@ update the matching line below in the same change.
   `returns.refund_method ∈ {original_payment, store_credit, exchange}`;
   `returns.item_condition ∈ {resellable, opened, damaged}`;
   `products.brand ∈` the row category's brand catalog.
-- **Non-negativity / bounds (added fields).** `products.weight_kg ∈ [0.05, 30]`.
+- **Non-negativity / bounds (added fields).** `products.weight_kg ∈ [0.05, 30]`;
+  `0 < products.cost < products.unit_price` (every SKU has a real positive gross margin).
 
 ## Distributions & mixes (should look like the real world)
 
 - **Row counts (`scale=1.0`).** `customers` = 3000, `products` = 500, `orders` = 12000,
-  `order_items` ≈ 2.5 × orders (≈ 30k, variable), `returns` ≈ 12% of `order_items` (≈ 3.5k).
+  `order_items` ≈ 2.5 × orders (≈ 30k, variable), `returns` ≈ 12% of `order_items` (≈ 3.5k),
+  `order_charges` = 12000 (one per order).
 - **unit_price.** Lognormal (σ ≈ 0.7) with a per-category median (apparel \$22 / electronics
   \$55 / home \$26 / consumables \$8), clamped to [\$1, \$500]. Overall median ≈ **\$23**, a
   long premium tail. Cents are continuous (not charm-priced) and prices don't cluster on
   round numbers; ~0.96 of SKUs carry a distinct price (no lattice).
+- **cost (`products`).** `round(unit_price × (1 − margin), 2)` where `margin` is a **flat**,
+  category-independent Normal(0.45, 0.05) clamped to [0.05, 0.90] — so gross margin averages
+  ≈ **0.45** and is roughly equal across categories, and `0 < cost < unit_price` always. The
+  per-category margin gradient (electronics thin / apparel fat, inverting the return-rate
+  gradient) is a **deferred scenario**, deliberately not planted here.
 - **product_name.** `adjective × per-category qualifier × noun` (12 × 6 × 6 ≈ 432 combos per
   category), so duplicate names are rare — ≈ **0.95** of the 500 SKUs carry a distinct name. A
   synthetic label for joins, not a real SKU master.
 - **Category mix.** apparel 0.34 / home 0.26 / consumables 0.22 / electronics 0.18.
 - **item_count per order.** `1 + Poisson(1.5)` → mostly 1–3 items, tail to ~8, mean ≈ **2.5**.
 - **quantity per line.** 1 (0.80) / 2 (0.15) / 3 (0.05).
+- **discount_pct per line (`order_items`).** 0 for ≈ **0.82** of lines (sold at sticker); the
+  remaining ≈ 0.18 carry a markdown drawn uniformly from the tier ladder {0.10, 0.15, 0.20,
+  0.25, 0.30, 0.40}. `line_total` stays gross; net line value is the derived
+  `line_total × (1 − discount_pct)`. Carries no signal — drawn independently of product,
+  basket, and return behaviour.
 - **Basket value.** `sum(line_total)` per order is right-skewed: median ≈ **\$80**, p95 ≈
-  **\$290**, mean ≈ \$107. Derived, not stored. See `scenarios/order-value-right-skew.md`.
+  **\$290**, mean ≈ \$107. Materialized order-grain as `order_charges.merchandise` (round of the
+  sum, exact to the cent), but still not on the `orders` header. See
+  `scenarios/order-value-right-skew.md`.
+- **shipping_fee / tax_amount (`order_charges`).** `shipping_fee` is free (0) once
+  `merchandise ≥ \$50` — ≈ **0.70** of orders — else a two-step tier (\$4.99 when
+  `merchandise ≥ \$25`, \$7.99 below that), so the fee avoids a single-value lattice.
+  `tax_amount` is a flat **7.25%** of `merchandise` (`round(0.0725 × merchandise, 2)`). Both are
+  a pure-deterministic function of the fan-out — no independent draws.
 - **channel mix.** web 0.50 / mobile 0.40 / marketplace 0.10.
 - **order status.** delivered 0.90 / shipped 0.05 / cancelled 0.05.
 - **order_date (seasonal).** Sampled across the `[start, end)` window with a repeating
@@ -84,21 +110,40 @@ update the matching line below in the same change.
 - **marketing_opt_in (`customers`).** Boolean, `True` ≈ 0.60. Independent of everything else.
 - **payment_method (`orders`).** card 0.55 / paypal 0.22 / bnpl 0.15 / gift_card 0.08.
   Independent of basket value.
+- **promo_code / discount_amount (`orders`).** ≈ **0.15** of orders carry a `promo_code`
+  (nullable `Utf8`, uniform over a 5-code catalog: `WELCOME10` / `SAVE15` / `SPRING20` /
+  `FREESHIP` / `LOYALTY25`); those orders get a `discount_amount` drawn as a **fixed** dollar
+  tier from {\$5, \$10, \$15, \$20, \$25} (uniform, independent of the code). Non-promo orders
+  have a null code and `discount_amount = 0`, so `discount_amount > 0` iff `promo_code` is not
+  null. The discount is a fixed amount, **not** a share of merchandise (the header can't see
+  basket lines without a build-order cycle), and carries no signal — independent of returns and
+  basket size. The discounted-orders-return-more subset signal is a **deferred scenario**.
 - **refund_method (`returns`).** original_payment 0.70 / store_credit 0.22 / exchange 0.08.
   Independent of `reason` and `restocked`.
 
 ## Deliberate simplifications (intended — do not "fix")
 
-- **No stored basket total.** `orders` has no `order_total`; basket value is deliberately a
-  `sum(order_items.line_total)` aggregate (the join-and-group-by teaching point), so nothing
-  can drift from the fan-out. `item_count` *is* stored and pinned to the realized line count.
-- **No price history.** A line's `unit_price` is a snapshot of the current product price — no
-  promotions, discounts, coupons, or per-order/per-customer pricing. The same product on two
-  orders shows the same price.
+- **No stored basket total on the header.** `orders` still has no `order_total`; the basket's
+  merchandise subtotal is deliberately a `sum(order_items.line_total)` aggregate (the
+  join-and-group-by teaching point). It *is* now materialized order-grain as
+  `order_charges.merchandise` — but on a separate post-fan-out table, not the `orders` header, and
+  it must reconcile to the fan-out (`merchandise = round(Σ line_total, 2)`), so nothing can drift.
+  `item_count` *is* stored on the header and pinned to the realized line count.
+- **No price history.** A line's `unit_price` is a snapshot of the current product price — the
+  same product on two orders shows the same sticker price (no per-order/per-customer pricing).
+  A per-line `discount_pct` records a flat markdown on top, but it carries no signal and
+  `unit_price` itself never varies.
 - **One return per line, whole-line only** — no partial-quantity returns (you can't return 1
   of a quantity-3 line) and no re-returns.
-- **Order value excludes tax and shipping.** There is no shipping/fees/tax table; basket value
-  is purely merchandise.
+- **Order total is a derived identity (not stored).** `order_charges` carries the
+  `merchandise` subtotal, `shipping_fee`, and `tax_amount`, but not an `order_total`: the true
+  total is the *derived* identity `merchandise + shipping_fee + tax_amount −
+  orders.discount_amount` (kept unstored, like every other total here). `merchandise` alone
+  stays the base for the order-value-right-skew scenario. **Edge case (do not clamp):** because
+  `discount_amount` is a *fixed* dollar tier drawn independently of basket size (see the
+  promo note above), the derived true total can go slightly **negative** for a few tiny,
+  high-discount baskets (≈ **0.5%** of orders) — a known artifact inherited from the fixed
+  discount, left as-is rather than clamped.
 - **No inventory or stock model.** Any product can appear on any order in any quantity; there
   are no stockouts, and `restocked` doesn't feed back into available inventory.
 - **Return propensity and reason depend only on category** — not on price, customer segment,
@@ -113,6 +158,10 @@ update the matching line below in the same change.
   (slicing practice, not planted signals). `products.brand` is uniform *within* category, so
   it inherits the category gradient rather than adding one, and `products.weight_kg` is a
   category-keyed covariate not yet wired into shipping cost or damage-in-transit returns.
+  `products.cost` uses a flat category-independent margin (the margin-inverts-the-return-gradient
+  subset signal is a deferred scenario), and `order_items.discount_pct` is a flat markdown drawn
+  independently of product / basket / return behaviour (the discounted-orders-return-more subset
+  signal is likewise deferred).
 
 ## How to review
 
@@ -149,4 +198,15 @@ select count(distinct product_name)::float / count(*) as distinct_name_ratio fro
 -- restock keys off arrival condition (~0.97 resellable / ~0.50 opened / ~0.04 damaged)
 select item_condition, avg(restocked::int) as restock_rate
 from returns group by item_condition order by restock_rate;
+
+-- order_charges reconcile to the fan-out + shipping/tax identities (expect 0 each)
+select count(*) filter (where oc.merchandise <> agg.m)                       as bad_merch,
+       count(*) filter (where oc.merchandise >= 50 and oc.shipping_fee > 0)  as bad_free_ship,
+       count(*) filter (where round(0.0725 * oc.merchandise, 2) <> oc.tax_amount) as bad_tax
+from order_charges oc
+join (select order_id, round(sum(line_total), 2) as m from order_items group by order_id) agg
+  using (order_id);
+
+-- free-shipping penetration: ~0.70 of orders ship free (merchandise >= $50)
+select avg((shipping_fee = 0)::int) as free_ship_share from order_charges;
 ```

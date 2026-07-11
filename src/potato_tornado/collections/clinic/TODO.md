@@ -20,54 +20,63 @@ invisible. The additions below close those gaps.
 
 ## Quick wins (realism enrichment)
 
-- [ ] **`patients.age_band`** (`Utf8`) — `ctx.dist.choice` over {peds, 18-40, 41-65, 65+}.
+- [x] **`patients.age_band`** (`Utf8`) — `ctx.dist.choice` over {peds, 18-40, 41-65, 65+}.
       Unlocks: no-show / visit-type slicing by age.
-- [ ] **`patients.insurance_type`** (`Utf8`) — a *patient-level* coverage band
+- [x] **`patients.insurance_type`** (`Utf8`) — a *patient-level* coverage band
       {commercial, medicare, medicaid, self_pay} weighted; distinct from the per-visit
       `invoices.payer`. Unlocks: payer-mix demographics; a covariate for AR.
-- [ ] **`providers.years_experience`** (`Int64`) — `ctx.dist.integers(1, 35)`. Unlocks:
+- [x] **`providers.years_experience`** (`Int64`) — `ctx.dist.integers(1, 35)`. Unlocks:
       seniority slicing (overrun / panel by tenure).
-- [ ] **`slots.telehealth_flag`** (`Boolean`) — `ctx.dist.bernoulli`. Unlocks: modality mix
+- [x] **`slots.telehealth_flag`** (`Boolean`) — `ctx.dist.bernoulli`. Unlocks: modality mix
       (in-person vs. virtual); a plausible no-show covariate.
-- [ ] **`appointments.booking_channel`** (`Utf8`) — {phone, portal, walk_in, referral}.
+- [x] **`appointments.booking_channel`** (`Utf8`) — {phone, portal, walk_in, referral}.
       Unlocks: booking-funnel analysis.
-- [ ] **`invoices.days_to_pay`** (`Int64`, nullable until paid) — derivable from a payment date
+- [x] **`invoices.days_to_pay`** (`Int64`, nullable until paid) — derivable from a payment date
       draw. Unlocks: AR aging (days-sales-outstanding) beyond the current `balance`/`status`.
 
 ## High-leverage additions
 
 ### 1. `appointments.reminder_sent`
-- [ ] Whether a reminder was sent (`Boolean`), plus optional `reminder_channel` (sms/email/none).
+- [x] Whether a reminder was sent (`Boolean`), plus optional `reminder_channel` (sms/email/none).
 - **Unlocks:** the reminder→attendance funnel — the single most actionable no-show lever.
 - **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: reminded
   appointments no-show materially less (interacts with the existing lead-time gradient). Name
   it; don't plant it here.
+- Shipped **flat** (`reminder_sent` ≈ 0.70, `reminder_channel` {sms, email} non-null iff sent);
+  NO reminder→no-show effect — that signal is deferred to the scenario workflow.
 
 ### 2. `visits.diagnosis_category`
-- [ ] A coarse clinical category (`Utf8`: preventive / acute / chronic_followup / procedure),
+- [x] A coarse clinical category (`Utf8`: preventive / acute / chronic_followup / procedure),
       keyed to `visit_type`.
 - **Unlocks:** clinical-mix analysis; a covariate for duration overrun and follow-up.
 - **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: overrun
   concentrates in one category (procedures run long) — a deeper cut of the existing
   duration-overrun scenario.
+- Shipped **flat** (≈ 0.25/0.40/0.25/0.10) and **independent of `visit_type`** (no overrun
+  concentration planted); the concentration signal is deferred to the scenario workflow.
 
 ### 3. `patients.chronic_flag` / risk score
-- [ ] A chronic-condition flag (`Boolean`) or `risk_score` (`Float64`), correlated with age.
+- [x] A chronic-condition flag (`Boolean`) or `risk_score` (`Float64`), correlated with age.
 - **Unlocks:** utilization analysis — do chronic patients book/visit more?
 - **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: a small
   high-risk patient minority drives a disproportionate visit share (a concentration signal).
+- Shipped **flat** (chronic_flag ≈ 0.22, risk_score ∈ [0,1]; independent of age_band and visit
+  counts); the concentration signal is deferred to the scenario workflow.
 
 ### 4. `invoices.adjustment_amount` + denial detail
-- [ ] Split the payer process: `adjustment_amount` (`Float64`, contractual write-down) and a
+- [x] Split the payer process: `adjustment_amount` (`Float64`, contractual write-down) and a
       `denied_amount` / `claim_status`, so `charge → allowed → paid → patient_balance` is
       visible rather than collapsed.
 - **Unlocks:** the payer adjudication funnel — directly addresses the standing realism note
   that billing collapses the payer process into one row.
 - **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: denial /
   adjustment rate varies by `payer` (Medicaid writes down more) — attributes the AR.
+- Shipped **flat** (adjustment ≈ 85% @ ≈ 14% of charge; denial ≈ 8% @ ≈ 25%; `claim_status ∈
+  {adjusted, clean, denied}`), **independent of `payer`** and preserving `charge = amount_paid +
+  balance`; the payer-varying denial rate is deferred to the scenario workflow.
 
 ### 5. `providers.panel_size`
-- [ ] Empanelled patient count (`Int64`), a provider capacity attribute.
+- [x] Empanelled patient count (`Int64`), a provider capacity attribute.
 - **Unlocks:** utilization denominator — visits per panel, provider load.
 - **Class:** realism enrichment.
 
@@ -85,8 +94,9 @@ the *open* items.
       reads wrong.
 - [ ] **No per-patient no-show history.** No-show depends on lead time only; there's no repeat
       no-show behaviour by patient. Flag only if per-patient autocorrelation is expected.
-- [ ] **Billing collapses the payer process into one row.** No claim-adjustment/denial detail;
-      the AR is a single amount (item 4 `invoices.adjustment_amount` above is the fix).
+- [x] **Billing collapses the payer process into one row.** Addressed by the flat
+      `adjustment_amount` / `denied_amount` / `claim_status` split (item 4 above); the funnel is
+      now visible. The *payer-varying* denial rate remains a deferred scenario.
 
 ## When the list is done
 

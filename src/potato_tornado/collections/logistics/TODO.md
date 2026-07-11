@@ -88,18 +88,24 @@ Too-synthetic / drift candidates for `/data-collection:review-edit-regen-for-rea
 (existing data to investigate, not new fields). The realism-log records the *runs*; these are
 the *open* items.
 
-- [ ] **Intermediate `in_transit` hub city is drawn once per shipment** and repeats across a
-      multi-hop parcel, unrelated to origin→destination geography. If someone maps routes it
-      reads as synthetic — check whether hub cities should vary per hop and sit "between"
-      origin and destination.
-- [ ] **`dest_zone` is independent of `dest_city` / `warehouses.city`.** A parcel can be zone
+- [x] **Intermediate `in_transit` hub city is drawn once per shipment** and repeats across a
+      multi-hop parcel, unrelated to origin→destination geography. **Fixed 2026-07-11** — each
+      in_transit hop now draws its own hub city (was 100% single-hub on multi-hop parcels, now
+      ~0%). The labels stay coarse faker cities (not route-ordered / between origin and
+      destination); that geographic grounding is deliberately out of scope. See `realism-log.md`.
+- [x] **`dest_zone` is independent of `dest_city` / `warehouses.city`.** A parcel can be zone
       1 to a far city or zone 8 to a near one — a distance proxy with no geographic grounding.
-      Measure whether a zone×city cross-tab looks implausible.
-- [ ] **Memoryless outcomes.** On-time, terminal status, and early/late days are independent
-      per shipment — no per-carrier streaks, seasonality, or weather. Confirm there's no
-      expectation of autocorrelation a student would notice.
-- [ ] **Cost-tail sanity.** Re-confirm the cost tail past \$80 is weight-driven and not
-      clipping oddly at the `weight_kg` clamp (50 kg) — spot-check the top decile.
+      **Confirmed intentional 2026-07-11** — 6396 distinct dest_city labels over 8000 shipments,
+      and 99% of recurring cities span >1 zone; reads as independent labels, not a bug. No code
+      change (documented simplification).
+- [x] **Memoryless outcomes.** On-time, terminal status, and early/late days are independent
+      per shipment — no per-carrier streaks, seasonality, or weather. **Confirmed intentional
+      2026-07-11** — lag-1 autocorr of the on-time indicator (by ship_date) ≈ -0.016 ≈ 0, no
+      autocorrelation. No code change (documented simplification).
+- [x] **Cost-tail sanity.** Re-confirm the cost tail past \$80 is weight-driven and not
+      clipping oddly at the `weight_kg` clamp (50 kg). **Confirmed healthy 2026-07-11** — only 2
+      shipments exceed \$80 (max \$84.27), neither at the 50 kg clamp (weights 20–33 kg);
+      corr(weight, cost) ≈ 0.44. No code change.
 
 ## When the list is done
 

@@ -20,12 +20,17 @@ update the matching line below in the same change.
 - **One subscription per subscriber.** Exactly one `subscriptions` row per subscriber, its
   `start_date` equal to the subscriber's `signup_date`.
 - **Lifecycle dates.** `status = 'cancelled'` rows have a non-null `end_date` strictly after
-  `start_date`; `status = 'active'` rows have a null `end_date`.
+  `start_date` **and strictly before the window `end_date`** — the lifecycle is right-censored
+  at the snapshot, so a churn dated on/after the window end reads `active` instead; `status =
+  'active'` rows have a null `end_date`.
 - **Anchor-event dates fall within the window.** `subscribers.signup_date` and
   `rentals.rented_date` lie in `[start_date, end_date)`. `titles.release_date` may predate the
-  window (back catalogue — drawn from 5 years before `start_date`), and a cancelled
-  subscription's derived `end_date` may fall *after* it (see Deliberate simplifications).
+  window (back catalogue — drawn from 5 years before `start_date`); a cancelled subscription's
+  derived `end_date` is right-censored to fall *within* the window (strictly before `end_date`).
 - **Billing cadence.** `subscriptions.billing_cycle ∈ {monthly, annual}`.
+- **MRR identity.** `subscriptions.mrr = plans.monthly_price` (monthly) or
+  `round(monthly_price × 10/12, 2)` (annual = "2 months free") — a pure derivation off the plan
+  price and cadence, always positive, never null.
 - **Cancel reason mirrors status.** `subscriptions.cancel_reason` is non-null **exactly** when
   `status = 'cancelled'` (null for active), and non-null values come from the fixed set
   `{price, content, technical, competitor, other}`. No third state.
@@ -66,25 +71,28 @@ update the matching line below in the same change.
   region: the US draws Basic 0.18 / Standard 0.34 / Premium 0.48 (Premium modal), every other
   region draws Basic 0.34 / Standard 0.55 / Premium 0.11. See
   `scenarios/standard-is-the-most-popular-plan.md`.
-- **Subscription status.** Overall ≈0.79 active / ≈0.21 cancelled — but churn is **not
-  flat**: each subscriber's cancel probability is `_BASE_CANCEL_RATE` (0.20) scaled by an
-  acquisition-channel multiplier and a billing-cadence multiplier, clipped to [0, 0.95]. So
-  cancelled-rate ladders from ≈0.10 (organic/referral) to ≈0.38 (paid_search), and ≈0.25
-  monthly vs ≈0.08 annual. See `scenarios/paid-channels-churn-faster.md` and
-  `scenarios/annual-plans-retain-better.md`.
+- **Subscription status.** Overall ≈0.815 active / ≈0.185 cancelled — the *observed* cancelled
+  share after right-censoring the lifecycle at the window end (a churn dated on/after `end_date`
+  reads active). Churn is **not flat**: each subscriber's cancel probability is
+  `_BASE_CANCEL_RATE` (0.20) scaled by an acquisition-channel multiplier and a billing-cadence
+  multiplier, clipped to [0, 0.95]. So observed cancelled-rate ladders from ≈0.08
+  (organic/referral) to ≈0.34 (paid_search), and ≈0.21 monthly vs ≈0.06 annual. See
+  `scenarios/paid-channels-churn-faster.md` and `scenarios/annual-plans-retain-better.md`.
 - **Tenure.** Whole months ~ Poisson(λ)+1, capped at 24 (right-skewed), where λ = 6 scaled by
   the same channel/billing multipliers in the *opposite* direction — paid + monthly run short,
-  organic + annual long. Cancelled-monthly mean is stable ≈5.6 months; cancelled-annual is a
-  small, noisy sub-sample (few subscribers are both annual *and* cancelled) that runs ≈8.6 at
-  the seed=7/scale=0.5 test config but centres nearer ~10 months at full scale (annual/monthly
-  tenure ratio ~1.8×). Only cancelled rows expose tenure via `end_date`.
+  organic + annual long. Cancelled-monthly mean is ≈5.3 months (right-censoring trims the
+  long-tenure late-signup cancels); cancelled-annual is a small, noisy sub-sample (few
+  subscribers are both annual *and* cancelled) that runs ≈8.6 at the seed=7/scale=0.5 test
+  config but centres nearer ~10 months at full scale (annual/monthly tenure ratio ~2×). Only
+  cancelled (observed) rows expose tenure via `end_date`, which right-censoring now bounds
+  strictly inside the window.
 - **Acquisition channel mix.** organic 0.34 / paid_search 0.24 / social 0.18 / referral 0.14 /
   partner 0.10 — the acquisition dimension the churn signal cuts by.
 - **Billing cadence mix.** monthly ≈0.80 / annual ≈0.20.
 - **Cancel reason mix.** Base (per cancelled row) price 0.28 / content 0.22 / technical 0.20 /
   competitor 0.15 / other 0.15, then reweighted by segment: `content` ×2.6 in narrow-catalogue
-  regions (JP/IN) and `price` ×2.2 on the Basic tier. Net: `content` ≈0.39 of JP/IN
-  cancellations vs ≈0.16 elsewhere; `price` ≈0.44 of Basic cancellations vs ≈0.28 on higher
+  regions (JP/IN) and `price` ×2.2 on the Basic tier. Net: `content` ≈0.40 of JP/IN
+  cancellations vs ≈0.16 elsewhere; `price` ≈0.46 of Basic cancellations vs ≈0.29 on higher
   tiers. See `scenarios/cancellation-reasons-vary-by-segment.md`.
 - **Title quality score.** `avg_rating` ~ Normal keyed on `is_premium` (premium mean 7.5,
   non-premium 6.3, sd 1.2) clamped to [1, 10] — premium ≈7.5 vs ≈6.3. See
@@ -137,13 +145,6 @@ update the matching line below in the same change.
 - **Rentals are independent of tenure.** A subscriber can rent on any date in the window,
   regardless of whether their subscription was active then. Tightening rentals to fall
   within an active subscription window is a candidate future invariant.
-- **Cancellations can settle after the window.** A cancelled subscription's `end_date` is
-  `signup_date + tenure` and is *not* right-censored at `end_date`, so ~15–17% of
-  cancellations (long tenures on late signups) resolve past the window end — up to ~14 months
-  beyond. This mirrors the house convention for derived end-dates (hotel check-outs and labor
-  project completions likewise spill past `end_date`): the window bounds the *anchor* event
-  (signup), not the lifecycle that plays out after it. Right-censoring is a candidate future
-  refinement, not a realism fix.
 - **Rentals spread uniformly across subscribers.** The renter of each rental is drawn
   uniformly, so there is no "heavy renter" concentration (rentals/subscriber ≈ Poisson-ish,
   max a handful). Concentrating rentals in a whale minority is a candidate future scenario,

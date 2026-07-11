@@ -12,8 +12,11 @@ into a dated, actionable checklist. It is **docs only**: it never touches a `bui
 
 The output shape is fixed by the existing example,
 [`docs/todos/2026-07-11-12:18-labor-round2-enrichment.md`](../../../docs/todos/2026-07-11-12:18-labor-round2-enrichment.md)
-— read it first and match it. Each generated file is a checklist **extracted from** a
-collection's authoritative [`TODO.md`], not a fresh survey: don't invent backlog items. If a
+— read it first and match it. Each generated file is a thin, dated **progress tracker that links
+into** a collection's authoritative [`TODO.md`] — **not** a copy of it. The checklist carries
+**no item substance of its own** (no recipe / class / unlocks / file per item): that lives in
+`TODO.md`, the single source of truth, and each checklist section links to the matching `TODO.md`
+section. This keeps the substance in one place to edit. Don't invent backlog items; if a
 collection's TODO.md is thin or missing, say so in the file rather than fabricating work.
 
 ## 1. `$ARGUMENTS`
@@ -67,26 +70,24 @@ Path: `docs/todos/<YYYY-MM-DD-HH:MM>-<collection>-<slug>.md`, where `<slug>` is 
 kebab-case summary of the open scope (e.g. `round2-enrichment`, `realism-investigation`,
 `enrichment-backlog`). Match the example file's structure exactly:
 
-- **Title** — `# <Collection> <short scope> — task list`.
-- **Metadata bullets** — **Created** (the `date` stamp), **Scope** (this collection only),
-  **Source** (link to that collection's `TODO.md`, named as the authoritative backlog, with the
-  "keep the two in step" note), and **Status** (what's already done vs. what's open, in the
-  collection's own words).
-- **How to work this list** — the realism vs. scenario-bearing routing
-  (`/data-collection:review-edit-regen-for-realism <name>` for flat realism;
-  `/scenario:draft-or-propose <name>` → `/scenario:review-and-edit-regenerate` for the planted
-  signal) and the **Definition of done** (name-keyed child stream, no reordering existing draws,
-  reconcile `realism-guidance.md`, pin/extend an invariant test in
-  `tests/collections/<name>/test_<name>.py`, and the full gate green:
-  `uv run ruff format && uv run ruff check && uv run pyright && uv run pytest`).
-- **Task sections** — mirror the groupings the collection's TODO.md already uses (quick-win
-  columns / high-leverage columns / candidate new tables / open realism items). Each task is a
-  `- [ ]` checkbox carrying, as sub-bullets, the substance that's already in TODO.md: **File**
-  (which `tables/*.py`), **Draw** (the deterministic recipe), **Unlocks**, and **Class**
-  (*realism* or *scenario-bearing*, with the scenario variant noted). Extract and tighten — do
-  not add items the TODO.md doesn't have.
-- **Suggested order** — carry over (or synthesize from) the TODO.md's ordering: smallest / all-
-  realism first, highest-leverage single items next, new tables as capacity allows.
+- **Title** — `# <Collection> — dated working checklist (<created stamp>)`.
+- **Metadata bullets** — **Scope** (this collection only), **Source of truth** (link to that
+  collection's `TODO.md`, stating the checklist carries **no item substance of its own** — each
+  item links into `TODO.md` for the recipe / class / definition of done — plus the "keep the two
+  in step" note: tick here → tick in `TODO.md` → log the run in `realism-log.md`, and a pointer to
+  [`collections/CLAUDE.md`](../../../src/potato_tornado/collections/CLAUDE.md) and the
+  `/data-collection:*` / `/scenario:*` commands for the workflow), and **Status** (what's already
+  done vs. what's open, in the collection's own words). The realism-vs-scenario routing and the
+  definition-of-done are **not** re-copied per file — they live in `collections/CLAUDE.md` and each
+  `TODO.md` item.
+- **Checklist sections** — mirror the groupings the collection's `TODO.md` already uses (quick-win
+  columns / high-leverage columns / candidate new tables / open realism items). Head each section
+  with a link to the matching `TODO.md` section
+  (``[`TODO.md` § <Section>](../../src/potato_tornado/collections/<name>/TODO.md#<github-anchor>)``),
+  then list each item as a bare `- [ ]` checkbox with only its **identifier** (the `table.column`
+  in backticks, or a short phrase for an investigate item) and, optionally, a compact dated
+  run-note on completed items (e.g. `*(2026-07-11 — flat)*`). **No File / Draw / Unlocks / Class
+  sub-bullets** — that substance stays in `TODO.md`. Don't add items the `TODO.md` doesn't have.
 
 Keep the checklist and the collection's `TODO.md` in step: checking an item here means checking
 it there when it lands, and recording the run in that collection's `realism-log.md`. Each run

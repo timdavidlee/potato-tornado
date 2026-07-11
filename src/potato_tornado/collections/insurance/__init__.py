@@ -14,9 +14,11 @@ Tables
 - ``policyholders``  : the insured parties, each with a risk tier.
 - ``policies``       : one policy sold per row — the premium side (the plan).
 - ``premium_billing``: the instalment schedule per policy (sums to ``annual_premium``).
+- ``coverage_lines`` : the per-coverage-line breakdown of a policy (shares sum to premium).
 - ``quotes``         : pre-bind quotes upstream of policies; most never convert.
 - ``claims``         : the filings — frequency x severity; most policies produce none.
 - ``claim_payments`` : the payout (the actual), one row per settled claim.
+- ``claim_status_history`` : the claim lifecycle — one row per status transition.
 
 Table builders live in ``tables/``, the domain catalogs in ``constants.py``, and
 the intended analytical signals in ``scenarios/``.
@@ -28,7 +30,9 @@ from potato_tornado.collections.insurance.tables import (
     build_adjusters,
     build_brokers,
     build_claim_payments,
+    build_claim_status_history,
     build_claims,
+    build_coverage_lines,
     build_policies,
     build_policyholders,
     build_premium_billing,
@@ -65,6 +69,13 @@ def build() -> Collection:
                 description="Premium instalments per policy — the schedule that sums to premium.",
             ),
             TableSpec(
+                "coverage_lines",
+                build_coverage_lines,
+                depends_on=("policies",),
+                description="Per-coverage-line breakdown of a policy — line limit, deductible, and "
+                "premium share (shares sum to annual_premium).",
+            ),
+            TableSpec(
                 "quotes",
                 build_quotes,
                 depends_on=("policies", "policyholders"),
@@ -81,6 +92,12 @@ def build() -> Collection:
                 build_claim_payments,
                 depends_on=("claims", "policies"),
                 description="Payout (actual), one row per settled claim.",
+            ),
+            TableSpec(
+                "claim_status_history",
+                build_claim_status_history,
+                depends_on=("claims",),
+                description="Claim lifecycle log — one row per status transition.",
             ),
         ),
     )

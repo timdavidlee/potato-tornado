@@ -5,7 +5,9 @@ median shifts by category (electronics dear, consumables cheap). Names are synth
 ``adjective + qualifier + category-noun`` triples — a label for joins, not a real SKU
 master, but the qualifier widens the name space enough that duplicates are rare. Each
 product also carries a ``brand`` (drawn from a per-category house catalog) and a
-lognormal ``weight_kg`` (a shipping-cost covariate), both category-keyed.
+lognormal ``weight_kg`` (a shipping-cost covariate), both category-keyed. ``cost`` is
+``unit_price x (1 - margin)`` with a **flat** (category-independent) ~0.45 margin, so
+``0 < cost < unit_price`` always; a per-category margin gradient is a deferred scenario.
 """
 
 from __future__ import annotations
@@ -54,6 +56,14 @@ _WEIGHT_MEDIAN = {"apparel": 0.45, "electronics": 1.1, "home": 1.6, "consumables
 _WEIGHT_SIGMA = 0.5
 _WEIGHT_MIN = 0.05
 _WEIGHT_MAX = 30.0
+
+# Gross margin (single-table literal): a flat ~0.45 with small jitter, drawn the same
+# way for every category (no per-category gradient — that would be a planted scenario).
+# Clamped to (0, 1) so `cost = unit_price x (1 - margin)` always satisfies 0 < cost < price.
+_MARGIN_MEAN = 0.45
+_MARGIN_SIGMA = 0.05
+_MARGIN_MIN = 0.05
+_MARGIN_MAX = 0.90
 
 
 def build_products(ctx: GenContext) -> pl.DataFrame:
@@ -107,6 +117,15 @@ def build_products(ctx: GenContext) -> pl.DataFrame:
         2,
     )
 
+    # Cost: a flat category-independent margin (independent child stream, so it doesn't
+    # shift the draws above). Clamped margin ∈ [0.05, 0.90] keeps 0 < cost < unit_price.
+    margin = np.clip(
+        ctx.rng.child("margin").numpy.normal(_MARGIN_MEAN, _MARGIN_SIGMA, n),
+        _MARGIN_MIN,
+        _MARGIN_MAX,
+    )
+    cost = np.round(unit_price * (1 - margin), 2)
+
     return pl.DataFrame(
         {
             "product_id": [f"SKU-{i:05d}" for i in range(1, n + 1)],
@@ -114,6 +133,7 @@ def build_products(ctx: GenContext) -> pl.DataFrame:
             "category": category,
             "brand": brand,
             "unit_price": unit_price,
+            "cost": cost,
             "weight_kg": weight_kg,
         }
     )

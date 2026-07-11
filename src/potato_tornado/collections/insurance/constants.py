@@ -38,3 +38,30 @@ PRODUCTS = [
 # The peril catalogue — what a claim is for. Independent of product and geography
 # (a deliberate simplification). Read by `claims` and referenced by the realism doc.
 PERILS = ["collision", "theft", "weather", "fire", "liability", "water_damage"]
+
+# (line_name, base_limit, deductible_applies, base_weight) per product — the
+# coverage-line catalogue. Each product's policy is a bundle of these lines;
+# `coverage_lines` expands one policy into one row per line. `base_limit` seeds the
+# (jittered) per-line limit; `deductible_applies` decides whether the line carries
+# the policy deductible (liability lines don't); `base_weight` is the line's nominal
+# share of the annual premium (each product's weights sum to 1.0, with the last line
+# holding a healthy share so the remainder-absorbing premium share stays positive).
+# This is a **descriptive** premium-side breakdown — the payout path still reads the
+# policy-level `coverage_limit`/`deductible`, so `line_limit` is deliberately not
+# reconciled against `coverage_limit`. Read only by `coverage_lines`.
+COVERAGE_LINES: dict[str, list[tuple[str, float, bool, float]]] = {
+    "auto": [
+        ("liability", 100_000.0, False, 0.45),
+        ("collision", 40_000.0, True, 0.35),
+        ("comprehensive", 25_000.0, True, 0.20),
+    ],
+    "home": [
+        ("dwelling", 300_000.0, True, 0.55),
+        ("contents", 120_000.0, True, 0.25),
+        ("liability", 100_000.0, False, 0.20),
+    ],
+    "renters": [
+        ("contents", 30_000.0, True, 0.65),
+        ("liability", 100_000.0, False, 0.35),
+    ],
+}

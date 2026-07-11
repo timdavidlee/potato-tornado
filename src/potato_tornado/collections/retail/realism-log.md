@@ -71,3 +71,66 @@ restock) documented in `realism-guidance.md`. (as of 2026-07-02)
   (item_condition catalog + mix, restock-mediation line, removed the now-resolved simplification
   bullet, added a review query) and pinned tests (catalog membership, restock↔condition gap,
   damage-reason→damaged-condition).
+- **2026-07-11 — `order_items.discount_pct` (high-leverage item 5).** Added a per-line markdown
+  (`Float64`, 0 for ≈ **0.82** of lines else a tier drawn uniformly from {0.10, 0.15, 0.20,
+  0.25, 0.30, 0.40}), from a new child stream `discount_pct` (`disc.random(total) < 0.18` gate,
+  `disc.integers` tier pick). Kept `line_total` **gross** (`round(quantity × unit_price, 2)`);
+  the net line value is the *derived* identity `line_total × (1 − discount_pct)`, not stored —
+  so the pinned `line_total` hash stays byte-identical and all other columns are unshifted (seed
+  7, scale 0.3). Flat markdown, carries no signal (independent of product, basket, returns) — the
+  discounted-orders-return-more subset signal stays deferred to the scenario workflow. Reconciled
+  `realism-guidance.md` (gross-line arithmetic-identity note, a discount_pct distribution line,
+  the reworded "No price history" simplification) and pinned an invariant test
+  (`discount_pct ∈ [0, 0.6]`).
+- **2026-07-11 — `products.cost` (high-leverage item 1, flat column).** Added unit cost
+  (`Float64`, `round(unit_price × (1 − margin), 2)`) from a new child stream `margin` — a
+  **flat, category-independent** Normal(0.45, 0.05) clamped to [0.05, 0.90], so gross margin
+  averages ≈ 0.45 and sits roughly equal across categories, and `0 < cost < unit_price` holds for
+  every SKU (0 violations at seed 7, scale 0.3; all other columns unshifted, `line_total`
+  byte-identical). The scenario-bearing part — margin inverting the return-rate gradient
+  (electronics thin / apparel fat) — is **deliberately not planted**; it stays deferred to
+  `/scenario:draft-or-propose`. Reconciled `realism-guidance.md` (added the
+  `0 < cost < unit_price` invariant, a cost distribution line noting the flat margin + deferred
+  scenario, and the "carry no signal" simplification bullet) and pinned an invariant test
+  (`0 < cost < unit_price`).
+- **2026-07-11 — `orders.promo_code` + `orders.discount_amount` (high-leverage item 2, flat
+  columns).** Added a nullable `promo_code` (`Utf8`, uniform over a 5-code catalog `WELCOME10` /
+  `SAVE15` / `SPRING20` / `FREESHIP` / `LOYALTY25`) and a `discount_amount` (`Float64`), from two
+  new child streams `promo` (penetration gate + code pick) and `discount` (tier pick). ≈ **0.15**
+  of orders carry a code; those get a **fixed** dollar tier from {\$5, \$10, \$15, \$20, \$25}
+  drawn independently of the code — **not** a share of merchandise, because `orders` builds before
+  `order_items` and can't see basket lines without a cycle. Non-promo orders get a null code and
+  0.0, so `discount_amount > 0` **iff** `promo_code` is not null (0 violations, seed 7 scale 0.3;
+  all other columns unshifted, `line_total` byte-identical). Kept independent of returns and basket
+  size — the discounted-orders-return-more subset signal stays **deferred** to
+  `/scenario:draft-or-propose`. Reconciled `realism-guidance.md` (a promo_code/discount_amount
+  distribution line: penetration, code catalog, fixed discount-depth mix, the fixed-not-share note,
+  deferred scenario) and pinned an invariant test (`discount_amount > 0` iff `promo_code` not null,
+  and `discount_amount ≥ 0`).
+
+- **2026-07-11 — `order_charges` table (high-leverage item 3, `shipping_fee` + `tax_amount`).**
+  Realized the previously-deferred item as a **new order-grain totals table** rather than columns
+  on `orders` — `orders` builds *before* `order_items`, so the header can't see its own basket
+  merchandise without a build-order cycle. `order_charges` (one row per order, `depends_on=
+  ("orders","order_items")`, built after the fan-out) carries `merchandise` =
+  `round(Σ order_items.line_total, 2)`, `shipping_fee` (free ≥\$50 else tiered \$4.99/\$7.99), and
+  `tax_amount` = `round(0.0725 × merchandise, 2)`. **Pure-deterministic** function of the two
+  already-built frames — **no `ctx.rng`/`ctx.dist` draws at all** — so every existing table
+  (`orders` / `order_items` / `returns` / `products` / `customers`) is **byte-identical** to
+  baseline (verified by row-hash at seed 7, scale 0.3). `order_id` is anchored to the `orders` row
+  order via a left join (preserves left order); `merchandise` reconciles to the fan-out and
+  `fill_null(0.0)` is defensive (every order has ≥1 line). Measured: 3600/3600 orders covered,
+  free-ship share ≈ **0.70**, fee ∈ {0, 4.99, 7.99}, 0 threshold/tax violations, all non-negative.
+  The true order total (`merchandise + shipping_fee + tax_amount − orders.discount_amount`) stays a
+  *derived* identity, not stored; it can go slightly **negative** for ≈0.5% of tiny high-discount
+  baskets (inherited from the fixed `discount_amount`) — noted, not clamped. Reconciled
+  `realism-guidance.md` (order_charges invariants, shipping/tax distribution line, the row-count,
+  the reworded "no stored basket total" + "order total is a derived identity" simplifications, two
+  review queries) and pinned an invariant test
+  (`test_free_shipping_at_or_above_threshold`). Closes the last high-leverage TODO item.
+
+**RESOLVED (was deferred):** `orders.shipping_fee` + `orders.tax_amount` (high-leverage item 3)
+was structurally blocked as a column on `orders` — both need order-grain basket merchandise, but
+`orders` builds *before* `order_items`, so the header can't see its own lines without a
+build-order cycle. **Shipped 2026-07-11 as the `order_charges` order-grain totals table** (totals
+materialized after the fan-out), the clean fix — see the log entry above.

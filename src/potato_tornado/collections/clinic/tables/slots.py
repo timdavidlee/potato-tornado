@@ -17,6 +17,7 @@ import polars as pl
 
 from potato_tornado.collections.clinic.constants import SPECIALTY_UTILISATION
 from potato_tornado.core.collection import GenContext
+from potato_tornado.core.distributions import Distributions
 
 # Seasonal + growth shape for slot volume. Slot days are drawn with a per-day
 # weight (seasonal cycle times an upward trend) rather than uniformly, so booked
@@ -53,12 +54,19 @@ def build_slots(ctx: GenContext) -> pl.DataFrame:
     p_row = np.array([prob_by_provider[p] for p in provider_id])
     is_booked = ctx.rng.numpy.random(n) < p_row
 
+    # Whether the slot is published as a telehealth (virtual) slot: a flat ≈ 18% of
+    # slots. Drawn from its own child stream and deliberately independent of the
+    # appointment's ``visit_type`` (which has its own "Telehealth" value) — a virtual
+    # *slot* and a Telehealth *visit type* are separate notions and need not coincide.
+    telehealth_flag = Distributions(ctx.rng.child("telehealth")).bernoulli(n, p=0.18)
+
     return pl.DataFrame(
         {
             "slot_id": [f"SLT-{i:07d}" for i in range(1, n + 1)],
             "provider_id": provider_id,
             "slot_at": slot_at,
             "is_booked": is_booked,
+            "telehealth_flag": telehealth_flag,
         }
     )
 

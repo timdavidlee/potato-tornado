@@ -50,6 +50,13 @@ SKILLS_BY_DEPARTMENT = {
 WORK_MODES = ["onsite", "hybrid", "remote"]
 WORK_MODE_WEIGHTS = [0.30, 0.50, 0.20]
 
+# Recruiting channel an employee was hired through. A join-free slice for
+# recruiting-channel mix (and a future quality-of-hire / attrition cut). Flat
+# weights — any "referrals churn less" signal is a future scenario, not planted
+# here. Weights sum to 1.
+HIRE_SOURCES = ["referral", "agency", "campus", "direct", "rehire"]
+HIRE_SOURCE_WEIGHTS = [0.28, 0.22, 0.20, 0.25, 0.05]
+
 # Role ladder, most senior last; weights are how common each role is.
 ROLES = ["Associate", "Senior Associate", "Lead", "Supervisor", "Manager"]
 ROLE_WEIGHTS = [0.5, 0.25, 0.13, 0.08, 0.04]
@@ -104,6 +111,13 @@ INDUSTRY_WEIGHTS = [0.22, 0.18, 0.16, 0.14, 0.12, 0.12, 0.06]
 # fixed-fee realization/overrun signals are future scenarios, not planted here.
 BILLING_TYPES = ["time_and_materials", "fixed_fee", "retainer"]
 BILLING_TYPE_WEIGHTS = [0.55, 0.30, 0.15]
+
+# Client-account tier, a size/importance band on the `clients` dimension. Weighted
+# so most accounts are mid/growth and only a few are strategic. Flat mix — the
+# revenue-Pareto (a few strategic clients carrying a large share of billed hours)
+# is a future scenario, not planted here. Weights sum to 1.
+CLIENT_TIERS = ["strategic", "growth", "mid", "small"]
+CLIENT_TIER_WEIGHTS = [0.15, 0.30, 0.35, 0.20]
 
 # Engagement priority — a staffing/attention dimension to slice by.
 PROJECT_PRIORITIES = ["low", "medium", "high"]

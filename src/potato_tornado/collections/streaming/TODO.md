@@ -11,12 +11,12 @@ draws), then reconcile `realism-guidance.md` and pin tests. See collections/CLAU
 
 ## Status
 
-**13 of 14 items shipped.** All 8 quick wins (realism enrichment) and all 5 high-leverage
+**14 of 14 items shipped.** All 8 quick wins (realism enrichment) and all 5 high-leverage
 items (scenario-bearing) are implemented, with reconciled `realism-guidance.md`, pinned
 invariant/magnitude tests, and — for the high-leverage five — scenario docs. Determinism was
 preserved throughout (every new random draw uses a dedicated `ctx.rng.child(...)` stream, so
-existing columns are byte-identical). Only **item 6 (`subscriptions.mrr`)** remains, and it is
-a deferred derived-convenience column ("hold unless asked").
+existing columns are byte-identical). **Item 6 (`subscriptions.mrr`)** shipped 2026-07-11 as a
+pure derivation (no RNG) — the enrichment backlog is now complete.
 
 Current live schema after enrichment (seed=7, scale=0.3), added columns in **bold**:
 
@@ -29,7 +29,7 @@ Current live schema after enrichment (seed=7, scale=0.3), added columns in **bol
 - `subscribers` — subscriber_id, full_name, email, signup_date, region, **device_platform**,
   **acquisition_channel**
 - `subscriptions` — subscription_id, subscriber_id, plan, **billing_cycle**, start_date,
-  end_date, status, **cancel_reason**
+  end_date, status, **cancel_reason**, **mrr**
 - `rentals` — rental_id, subscriber_id, title_id, rented_date, price, **payment_method**,
   **rating**
 
@@ -135,10 +135,11 @@ from existing `ctx.dist` / `ctx.rng.child` / catalog literals.
 ## Later / depends-on
 
 ### 6. `subscriptions.mrr` (derived convenience column)
-- [ ] Only worthwhile *after* item 2 (`billing_cycle`) lands: a materialized
-  `mrr` (`Float64`) = `plans.monthly_price`, or the annual-discounted monthly equivalent.
-  Requires `subscriptions` to `depends_on ("plans")` (it already does). Pure derivation, so
-  low value unless a lesson wants MRR pre-computed rather than joined — hold unless asked.
+- [x] **Built 2026-07-11.** Materialized `mrr` (`Float64`) = `plans.monthly_price` (monthly) or the
+  annual-discounted monthly equivalent (`monthly_price × ANNUAL_MRR_FACTOR`, `ANNUAL_MRR_FACTOR =
+  10/12`, "2 months free") when `billing_cycle = 'annual'`. Pure derivation, no RNG — existing
+  columns stayed byte-identical. MRR-identity invariant added to `realism-guidance.md` with a
+  single-assert test.
 
 ## Out of scope — new tables, not columns (→ `/data-collection:propose`)
 
@@ -161,8 +162,14 @@ the *open* items.
 - [ ] **No heavy-renter concentration.** Rentals spread ~uniformly across subscribers
       (rentals/subscriber ≈ Poisson, max a handful) — no whale minority driving PVOD revenue.
       The strongest realism-flavoured candidate (documented as a future scenario).
-- [ ] **Subscription lifecycle is birth-only.** Rows capture the subscription window (signup)
-      but not right-censoring / churn dynamics after it — a candidate future invariant.
+- [x] **Subscription lifecycle is birth-only.** ~~Rows capture the subscription window (signup)
+      but not right-censoring / churn dynamics after it — a candidate future invariant.~~
+      **Realized 2026-07-11:** cancellations are now right-censored at the window end — a churn
+      dated on/after `end_date` reads `active` with a null `end_date` — so a cancelled `end_date`
+      always settles strictly inside the window. Pure re-derivation off the existing
+      is_cancelled / tenure draws (no new RNG), so `mrr` and every other column stayed
+      byte-identical; observed cancelled share moved 0.214 → 0.185 at the fixture. See
+      `realism-log.md`.
 - [ ] **`is_premium` is release-date independent.** Newer releases aren't tilted toward the
       premium tier the way real PVOD is; the premium-by-release-year cross-tab reads flat
       (scenario-bearing).

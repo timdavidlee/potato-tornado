@@ -14,6 +14,8 @@ Tables
 - ``orders``      : the basket header, one row per order (with its item count).
 - ``order_items`` : the fan-out — item_count lines per order (the 1:many child).
 - ``returns``     : the subset of line items sent back, at most one per line.
+- ``order_charges``: order-grain totals (merchandise subtotal, shipping fee, tax),
+  materialized after the fan-out since the header can't see its own basket lines.
 
 Table builders live in ``tables/``, the domain catalogs in ``constants.py``, and
 the intended analytical signals in ``scenarios/``.
@@ -23,6 +25,7 @@ from __future__ import annotations
 
 from potato_tornado.collections.retail.tables import (
     build_customers,
+    build_order_charges,
     build_order_items,
     build_orders,
     build_products,
@@ -58,6 +61,12 @@ def build() -> Collection:
                 build_returns,
                 depends_on=("order_items", "orders", "products"),
                 description="Line items sent back, at most one per line.",
+            ),
+            TableSpec(
+                "order_charges",
+                build_order_charges,
+                depends_on=("orders", "order_items"),
+                description="Order-grain totals: merchandise subtotal, shipping fee, tax.",
             ),
         ),
     )

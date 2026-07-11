@@ -277,21 +277,21 @@ from existing `ctx.dist` (`choice` / `bernoulli` / `integers` / `clamped_normal`
 
 ### Quick wins (realism enrichment)
 
-- [ ] **`employees.hire_source`** (`Utf8`, `{referral, agency, campus, direct, rehire}`) —
+- [x] **`employees.hire_source`** (`Utf8`, `{referral, agency, campus, direct, rehire}`) —
   `ctx.dist.choice` weighted (~0.28 / 0.22 / 0.20 / 0.25 / 0.05) on a
   `ctx.rng.child("hire_source")` stream drawn after the existing employee draws. Unlocks:
   recruiting-channel mix and a slice for attrition / quality-of-hire. Flat here; *referrals stay
   longer / churn less* is the scenario-bearing variant → `/scenario:draft-or-propose`.
-- [ ] **`employees.prior_experience_years`** (`Int64`) — years of experience before joining the
+- [x] **`employees.prior_experience_years`** (`Int64`) — years of experience before joining the
   firm; `ctx.dist.poisson(~6)` (or `clamped_normal`) nudged up by an offset keyed to `role` rung,
   own child stream. Unlocks: experience-vs-pay / experience-vs-role analysis — an external
   seniority axis distinct from the internal `role` ladder. Flat realism.
-- [ ] **`time_entries.entry_source`** (`Utf8`, `{badge, mobile, web, manual}`) — how the punch
+- [x] **`time_entries.entry_source`** (`Utf8`, `{badge, mobile, web, manual}`) — how the punch
   was captured; `ctx.dist.choice` weighted on the existing `timesheet` child stream (or a new
   `entry_source` child), **null on no-show rows** (mirrors the null-clock / `approval_status`
   rule). Unlocks: timekeeping-system mix. Flat; *manual entries get rejected / corrected more* is
   the scenario-bearing echo of the timesheet-compliance signal.
-- [ ] **`projects.contract_signed_date`** (`Date`, `≤ start_date`) — the sale-close date, a
+- [x] **`projects.contract_signed_date`** (`Date`, `≤ start_date`) — the sale-close date, a
   right-skewed lead before `start_date` (`ctx.dist.lognormal` days back) on a
   `ctx.rng.child("signed")` stream, clamped so it never crosses the window start. Unlocks:
   sales-cycle length (`start_date − contract_signed_date`) and booking-vs-start backlog. Flat.
@@ -299,7 +299,7 @@ from existing `ctx.dist` (`choice` / `bernoulli` / `integers` / `clamped_normal`
 ### High-leverage additions
 
 #### R2-1. `project_members.billed_hours`
-- [ ] Actual hours the member billed to the project (`Float64`), so project revenue becomes
+- [x] Actual hours the member billed to the project (`Float64`), so project revenue becomes
   *computable* rather than only approximable: `Σ billed_hours × bill_rate`. Draw sketch:
   `allocation_pct/100 × weekly_capacity × weeks(rolled_on → rolled_off) × a realization factor`
   on a `ctx.rng.child("billed_hours")` stream; `null` for non-billable members (mirrors the
@@ -314,7 +314,7 @@ from existing `ctx.dist` (`choice` / `bernoulli` / `integers` / `clamped_normal`
   natural partner to the realization item 2 and the budget-overrun item 6).
 
 #### R2-2. `projects.engagement_manager_id`
-- [ ] The accountable partner / owner for the engagement (`Utf8` FK → `employees.employee_id`),
+- [x] The accountable partner / owner for the engagement (`Utf8` FK → `employees.employee_id`),
   distinct from the on-project `role_on_project = 'lead'` in `project_members`. Draw sketch: pick
   a senior employee (Supervisor / Manager rung) whose tenure covers `start_date`, on a
   `ctx.rng.child("engagement_mgr")` stream (`depends_on` already includes `employees`).
@@ -325,7 +325,7 @@ from existing `ctx.dist` (`choice` / `bernoulli` / `integers` / `clamped_normal`
   book / higher CSAT / more overruns → `/scenario:draft-or-propose` with the concentration named.
 
 #### R2-3. `assignments.assigned_at`
-- [ ] When the roster was published for the shift (`Datetime`); the scheduling lead time is
+- [x] When the roster was published for the shift (`Datetime`); the scheduling lead time is
   `shift.planned_start − assigned_at`. Draw sketch: `planned_start` minus a right-skewed lead
   offset (`ctx.dist.lognormal`, median ~7 days, tail to same-day) on a
   `ctx.rng.child("assigned_at")` stream, floored at the employee's `hire_date`.
@@ -345,7 +345,7 @@ top-level *domain* would still be propose's job). Each needs a new `tables/<tabl
 and a `TableSpec` (with `depends_on`) in `__init__.py`, but **no** `core/registry.py` change.
 
 ### `clients`
-- [ ] **Grain:** one row per client. **Joins:** `projects` gains a `client_id`
+- [x] **Grain:** one row per client. **Joins:** `projects` gains a `client_id`
   (`depends_on=("clients", …)`, FK `projects.client_id → clients`); the bare
   `projects.client_name` string becomes this dim's `name`.
 - **Key columns:** `client_id` (`Utf8`), `name` (`ctx.entities.companies`), `tier` (`Utf8`
@@ -361,7 +361,7 @@ and a `TableSpec` (with `depends_on`) in `__init__.py`, but **no** `core/registr
   and samples a `client_id`. Supersedes the "Out of scope: clients table → propose" note below.
 
 ### `time_off`
-- [ ] **Grain:** one row per leave spell. **Joins:** `depends_on=("employees",)`, FK
+- [x] **Grain:** one row per leave spell. **Joins:** `depends_on=("employees",)`, FK
   `time_off.employee_id → employees`.
 - **Key columns:** `leave_type` (`Utf8` `{vacation, sick, holiday, unpaid, parental}`, weighted),
   `start_date` / `end_date` (`Date`, inside the employee's `[hire_date, termination_date | end]`
@@ -377,7 +377,7 @@ and a `TableSpec` (with `depends_on`) in `__init__.py`, but **no** `core/registr
   scope: time_off → propose" note below.
 
 ### `expenses`
-- [ ] **Grain:** one row per project expense line. **Joins:** `depends_on=("projects",
+- [x] **Grain:** one row per project expense line. **Joins:** `depends_on=("projects",
   "project_members")`, FK `expenses.project_id → projects` (+ optional
   `expenses.employee_id → employees` for who incurred it).
 - **Key columns:** `category` (`Utf8` `{travel, lodging, meals, subcontractor, software}`,
@@ -391,7 +391,7 @@ and a `TableSpec` (with `depends_on`) in `__init__.py`, but **no** `core/registr
 - **Wiring:** new `tables/expenses.py` + `TableSpec`; no `registry.py` change.
 
 ### `performance_reviews`
-- [ ] **Grain:** one row per employee per review cycle. **Joins:** `depends_on=("employees",)`,
+- [x] **Grain:** one row per employee per review cycle. **Joins:** `depends_on=("employees",)`,
   FK `performance_reviews.employee_id → employees` and `reviewer_id → employees` (the
   `manager_id`).
 - **Key columns:** `cycle` (`Utf8`, e.g. `2024-H2`), `rating` (`Int8` 1–5, skewed to 3–4 with a
@@ -406,7 +406,7 @@ and a `TableSpec` (with `depends_on`) in `__init__.py`, but **no** `core/registr
   than needed.
 
 ### `employee_skills`
-- [ ] **Grain:** one row per (employee, skill) — the many-to-many bridge behind the single-valued
+- [x] **Grain:** one row per (employee, skill) — the many-to-many bridge behind the single-valued
   `employees.primary_skill`. **Joins:** `depends_on=("employees",)`, FK
   `employee_skills.employee_id → employees`.
 - **Key columns:** `skill` (`Utf8`, drawn from the employee's practice `SKILLS_BY_DEPARTMENT` set

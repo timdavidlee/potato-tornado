@@ -26,12 +26,17 @@ from __future__ import annotations
 
 from potato_tornado.collections.labor.tables import (
     build_assignments,
+    build_clients,
     build_departments,
+    build_employee_skills,
     build_employees,
+    build_expenses,
+    build_performance_reviews,
     build_project_members,
     build_projects,
     build_shifts,
     build_time_entries,
+    build_time_off,
 )
 from potato_tornado.core.collection import Collection, TableSpec
 from potato_tornado.core.registry import register
@@ -69,10 +74,11 @@ def build() -> Collection:
                 depends_on=("assignments", "shifts", "departments"),
                 description="Actual clock-in/out, no-shows and overtime.",
             ),
+            TableSpec("clients", build_clients, description="Client accounts (the client master)."),
             TableSpec(
                 "projects",
                 build_projects,
-                depends_on=("departments",),
+                depends_on=("departments", "employees", "clients"),
                 description="Cross-functional initiatives, each run from a location.",
             ),
             TableSpec(
@@ -80,6 +86,30 @@ def build() -> Collection:
                 build_project_members,
                 depends_on=("projects", "employees"),
                 description="Employees staffed onto projects (many-to-many).",
+            ),
+            TableSpec(
+                "employee_skills",
+                build_employee_skills,
+                depends_on=("employees", "departments"),
+                description="Many-to-many bridge of employees to their skills.",
+            ),
+            TableSpec(
+                "performance_reviews",
+                build_performance_reviews,
+                depends_on=("employees",),
+                description="Periodic review events per employee per half-year cycle.",
+            ),
+            TableSpec(
+                "expenses",
+                build_expenses,
+                depends_on=("projects", "project_members"),
+                description="Project expense lines beyond labor (T&E, subcontractor, software).",
+            ),
+            TableSpec(
+                "time_off",
+                build_time_off,
+                depends_on=("employees",),
+                description="Per-employee leave spells (vacation/sick/holiday/unpaid/parental).",
             ),
         ),
     )

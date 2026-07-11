@@ -10,7 +10,11 @@ from __future__ import annotations
 from potato_tornado.collections.insurance.tables.adjusters import build_adjusters
 from potato_tornado.collections.insurance.tables.brokers import build_brokers
 from potato_tornado.collections.insurance.tables.claim_payments import build_claim_payments
+from potato_tornado.collections.insurance.tables.claim_status_history import (
+    build_claim_status_history,
+)
 from potato_tornado.collections.insurance.tables.claims import build_claims
+from potato_tornado.collections.insurance.tables.coverage_lines import build_coverage_lines
 from potato_tornado.collections.insurance.tables.policies import build_policies
 from potato_tornado.collections.insurance.tables.policyholders import build_policyholders
 from potato_tornado.collections.insurance.tables.premium_billing import build_premium_billing
@@ -20,7 +24,9 @@ __all__ = [
     "build_adjusters",
     "build_brokers",
     "build_claim_payments",
+    "build_claim_status_history",
     "build_claims",
+    "build_coverage_lines",
     "build_policies",
     "build_policyholders",
     "build_premium_billing",

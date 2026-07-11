@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime, time, timedelta
+
+import numpy as np
 import polars as pl
 
 from potato_tornado.core.collection import GenContext
@@ -32,6 +35,7 @@ def build_assignments(ctx: GenContext) -> pl.DataFrame:
     rng = ctx.rng.numpy
     rows_shift: list[str] = []
     rows_emp: list[str] = []
+    rows_planned_start: list[datetime] = []
     for shift_id, dept, required, planned_start in zip(
         shifts["shift_id"].to_list(),
         shifts["department_id"].to_list(),
@@ -52,13 +56,27 @@ def build_assignments(ctx: GenContext) -> pl.DataFrame:
         picked = rng.choice(pool, size=min(target, len(pool)), replace=False)
         rows_shift.extend([shift_id] * len(picked))
         rows_emp.extend(picked.tolist())
+        rows_planned_start.extend([planned_start] * len(picked))
 
     n = len(rows_shift)
+
+    # When the roster for this shift was published: the shift's planned start minus a
+    # right-skewed scheduling lead (median ~7 days, tail to weeks out), floored at the
+    # employee's hire date so nobody is scheduled before they joined. FLAT — drawn on
+    # its own child stream, independent of `no_show` (the short-notice -> no-show
+    # correlation is a deferred scenario). The lead time is planned_start - assigned_at.
+    lead_days = ctx.rng.child("assigned_at").numpy.lognormal(np.log(7.0), 0.7, size=n)
+    assigned_at: list[datetime] = []
+    for planned_start, emp_id, lead in zip(rows_planned_start, rows_emp, lead_days, strict=True):
+        floor = datetime.combine(emp_hire[emp_id], time.min)
+        assigned_at.append(max(planned_start - timedelta(days=float(lead)), floor))
+
     return pl.DataFrame(
         {
             "assignment_id": [f"ASG-{i:07d}" for i in range(1, n + 1)],
             "shift_id": rows_shift,
             "employee_id": rows_emp,
             "assigned_role": ctx.dist.choice(n, ["primary", "backup"], [0.85, 0.15]),
+            "assigned_at": pl.Series(assigned_at, dtype=pl.Datetime),
         }
     )

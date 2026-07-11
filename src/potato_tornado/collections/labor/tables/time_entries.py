@@ -29,6 +29,12 @@ _APPROVAL_STATES = ("approved", "pending", "rejected")
 _APPROVAL_WEIGHTS = (0.90, 0.07, 0.03)
 _SUBMITTED_LATE_P = 0.12
 
+# How the punch was captured on a worked entry. Badge readers dominate, mobile and
+# web are common, a small tail is entered manually. Flat org-wide mix — realism
+# enrichment (the "manual entries get corrected more" angle is a future scenario).
+_ENTRY_SOURCES = ("badge", "mobile", "web", "manual")
+_ENTRY_SOURCE_WEIGHTS = (0.45, 0.30, 0.18, 0.07)
+
 
 def build_time_entries(ctx: GenContext) -> pl.DataFrame:
     assignments = ctx.table("assignments")
@@ -91,6 +97,14 @@ def build_time_entries(ctx: GenContext) -> pl.DataFrame:
     approval_status = [str(approval_draw[i]) if showed_up[i] else None for i in range(n)]
     submitted_late = [bool(late_draw[i]) if showed_up[i] else None for i in range(n)]
 
+    # How the punch was captured — only worked entries have a timekeeping source, so
+    # it's null on no-show rows (mirrors the null-clock / approval rule). Own child
+    # stream so the draws above don't shift.
+    entry_source_draw = ctx.rng.child("entry_source").numpy.choice(
+        np.array(_ENTRY_SOURCES, dtype=object), size=n, p=_ENTRY_SOURCE_WEIGHTS
+    )
+    entry_source = [str(entry_source_draw[i]) if showed_up[i] else None for i in range(n)]
+
     actual_in: list[datetime | None] = []
     actual_out: list[datetime | None] = []
     worked_hours: list[float | None] = []
@@ -121,5 +135,6 @@ def build_time_entries(ctx: GenContext) -> pl.DataFrame:
             "billable": pl.Series(billable, dtype=pl.Boolean),
             "approval_status": pl.Series(approval_status, dtype=pl.Utf8),
             "submitted_late": pl.Series(submitted_late, dtype=pl.Boolean),
+            "entry_source": pl.Series(entry_source, dtype=pl.Utf8),
         }
     )

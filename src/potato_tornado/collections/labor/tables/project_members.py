@@ -29,6 +29,8 @@ def build_project_members(ctx: GenContext) -> pl.DataFrame:
     # Whether each employee is client-billable, so non-billable members carry no
     # project bill rate (null) — there is no client rate for bench/overhead staff.
     emp_is_billable = dict(zip(all_ids, employees["is_billable"].to_list(), strict=True))
+    # Contracted weekly hours per employee — the capacity `billed_hours` scales.
+    emp_capacity = dict(zip(all_ids, employees["weekly_capacity_hours"].to_list(), strict=True))
     # Seniority rung per employee, so the lead can be the most senior team member.
     role_rung = {role: i for i, role in enumerate(ROLES)}
     emp_rung = dict(zip(all_ids, [role_rung[r] for r in employees["role"].to_list()], strict=True))
@@ -137,6 +139,26 @@ def build_project_members(ctx: GenContext) -> pl.DataFrame:
         else:
             rolled_off.append(None)
 
+    # Billed hours: a staffing-side estimate of the hours this member billed to the
+    # project = allocation share x weekly capacity x weeks on the project x a
+    # realization factor. For an open membership (rolled_off is null) the effective
+    # end is the project's target_end_date — a proxy for "still running", so open
+    # memberships bill through the planned end. Null for non-billable members
+    # (mirrors the null bill_rate rule). Own child stream so the draws above don't
+    # shift. Deliberately a staffing-side figure — NOT reconciled against
+    # time_entries (the decoupling is intentional; see realism-guidance).
+    factor = np.clip(ctx.rng.child("billed_hours").numpy.normal(0.85, 0.1, size=n), 0.4, 1.0)
+    billed_hours: list[float | None] = []
+    for project_id, emp_id, on, off, alloc, f in zip(
+        rows_proj, rows_emp, rolled_on, rolled_off, allocation, factor, strict=True
+    ):
+        if not emp_is_billable[emp_id]:
+            billed_hours.append(None)
+            continue
+        eff_off = off if off is not None else proj_end[project_id]
+        weeks = max((eff_off - on).days, 0) / 7
+        billed_hours.append(round(int(alloc) / 100 * emp_capacity[emp_id] * weeks * float(f), 1))
+
     return pl.DataFrame(
         {
             "membership_id": [f"PMB-{i:06d}" for i in range(1, n + 1)],
@@ -147,5 +169,6 @@ def build_project_members(ctx: GenContext) -> pl.DataFrame:
             "rolled_on_date": pl.Series(rolled_on, dtype=pl.Date),
             "rolled_off_date": pl.Series(rolled_off, dtype=pl.Date),
             "bill_rate": pl.Series(bill_rate, dtype=pl.Float64),
+            "billed_hours": pl.Series(billed_hours, dtype=pl.Float64),
         }
     )

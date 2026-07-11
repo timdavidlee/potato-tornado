@@ -37,29 +37,43 @@ name-keyed child streams so existing columns/tests are byte-identical._
 
 ## High-leverage additions
 
-### 1. `products.cost` → gross margin
-- [ ] Unit cost (`Float64`, `unit_price × (1 − margin)` with a per-category margin band, so
-      cost < price always).
+### 1. `products.cost` → gross margin ✅ flat column shipped 2026-07-11
+- [x] Unit cost (`Float64`, `round(unit_price × (1 − margin), 2)` with a **flat**
+      category-independent margin (Normal(0.45, 0.05) clamped [0.05, 0.90]), so
+      `0 < cost < unit_price` always). Child stream `margin`; existing columns byte-identical.
+      See `products.py` + realism-log.
 - **Unlocks:** the central retail metric — gross margin per line, per order, per category;
   margin-adjusted basket value.
-- **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: margin
-  differs sharply by category (electronics thin, apparel fat) — the inverse of the return-rate
-  gradient, so high-return categories may also be high-margin. Name it; don't plant it here.
+- **Class:** **scenario-bearing** — the flat column is shipped (realism). Candidate signal:
+  margin differs sharply by category (electronics thin, apparel fat) — the inverse of the
+  return-rate gradient, so high-return categories may also be high-margin. **Deferred**: the
+  per-category gradient stays for `/scenario:draft-or-propose`, not planted here.
 
-### 2. `orders.discount_amount` / `promo_code`
-- [ ] An order-level discount (`Float64`, 0 for most orders, else a share of merchandise) and a
-      nullable `promo_code` (`Utf8`).
+### 2. `orders.discount_amount` / `promo_code` ✅ flat columns shipped 2026-07-11
+- [x] An order-level discount (`Float64`, 0 for ≈0.85 of orders, else a **fixed** dollar tier
+      from {5,10,15,20,25}) and a nullable `promo_code` (`Utf8`, uniform over a 5-code catalog).
+      Fixed, not merchandise-proportional — the header can't see basket lines without a
+      build-order cycle. `discount_amount > 0` iff `promo_code` not null. Child streams
+      `promo` / `discount`; existing columns byte-identical. See `orders.py` + realism-log.
 - **Unlocks:** promotion analysis — discount depth, promo penetration, net vs. gross basket.
-- **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: discounted
-  orders return *more* (deal-seekers) or bigger baskets — a promo-quality subset signal.
+- **Class:** **scenario-bearing** — flat columns shipped (realism). Candidate signal: discounted
+  orders return *more* (deal-seekers) or bigger baskets — **deferred** to
+  `/scenario:draft-or-propose`, kept independent of returns/basket here.
 
-### 3. `orders.shipping_fee` + `tax_amount`
-- [ ] Shipping fee (`Float64`, keyed to basket value — free over a threshold) and tax
-      (derived from merchandise × a rate).
-- **Unlocks:** true order total (merchandise + shipping + tax), free-shipping-threshold
+### 3. `orders.shipping_fee` + `tax_amount` ✅ shipped 2026-07-11 as the `order_charges` table
+- [x] Shipping fee (`Float64`, keyed to basket value — free over a threshold) and tax
+      (derived from merchandise × a rate). **Shipped as a new order-grain `order_charges` table**,
+      not columns on `orders`: `orders` builds *before* `order_items`, so the header can't see its
+      own basket merchandise without a build-order cycle. `order_charges` (one row per order, built
+      after the fan-out) carries `merchandise` = `round(Σ line_total, 2)`, `shipping_fee` (free
+      ≥\$50 else tiered \$4.99/\$7.99), and `tax_amount` = `round(0.0725 × merchandise, 2)`. Pure
+      function of `orders` + `order_items` — **no draws**, so every existing table is byte-identical.
+      See `order_charges.py` + realism-log.
+- **Unlocks:** true order total (merchandise + shipping + tax − discount), free-shipping-threshold
   behaviour, checkout economics.
 - **Class:** realism enrichment — composes with the derived basket value the collection already
-  teaches (documented today as *excluding* tax/shipping; reconcile that simplification).
+  teaches (the "excludes tax/shipping" simplification is reconciled: true total is now a derived
+  identity over `order_charges`, `merchandise` stays the base for the right-skew scenario).
 
 ### 4. `returns.item_condition` → reverse logistics ✅ shipped 2026-07-02
 - [x] Condition on arrival (`Utf8`: resellable / opened / damaged), keyed to `reason`
@@ -69,12 +83,14 @@ name-keyed child streams so existing columns/tests are byte-identical._
   opened 0.22); ties `restocked` to a cause via `reason → item_condition → restocked`.
 - **Class:** realism enrichment — resolved the standing "restocked keyed only to reason" note.
 
-### 5. `order_items.discount_pct`
-- [ ] Per-line promotional discount (`Float64`, mostly 0), so `line_total` reflects the net
-      price and a gross-vs-net line comparison is possible.
+### 5. `order_items.discount_pct` ✅ shipped 2026-07-11
+- [x] Per-line promotional discount (`Float64`, 0 for ≈0.82 of lines, else a tier from
+      {0.10..0.40}). `line_total` kept **gross**; net line value is the derived identity
+      `line_total × (1 − discount_pct)`, not stored — so a gross-vs-net line comparison is
+      possible without mutating the pinned `line_total` identity. Child stream `discount_pct`;
+      existing columns byte-identical. See `order_items.py` + realism-log.
 - **Unlocks:** line-level markdown analysis; interacts with item 1's margin.
-- **Class:** realism enrichment (note: changes the `line_total` identity — reconcile in
-  `realism-guidance.md` if net-of-discount).
+- **Class:** realism enrichment — flat markdown, carries no signal.
 
 ## Out of scope (new table, not a field)
 
@@ -110,8 +126,11 @@ all five items resolved (two fixed, three judged deliberate).
 
 ## When the list is done
 
-- [ ] **Revise `realism-guidance.md`.** After the fields above land, reconcile the realism
-      rubric and invariant tests with the new columns (new dimensions to slice by, new
-      invariants — e.g. `cost < unit_price`, `shipping_fee = 0` above the free threshold,
-      `item_condition` correlated with `restocked`). Run
-      `/data-collection:review-edit-regen-for-realism` for this collection.
+- [x] **Revise `realism-guidance.md`.** _Done 2026-07-11._ The rubric + invariant tests are
+      reconciled with every landed column/table: `0 < cost < unit_price`, `discount_amount > 0`
+      iff `promo_code`, `discount_pct ∈ [0, 0.6]`, `item_condition`↔`restocked`, and the
+      `order_charges` invariants (one-per-order, `merchandise = round(Σ line_total, 2)`,
+      `shipping_fee = 0` at/above the \$50 free threshold, the tax identity, non-negativity) plus
+      the derived-true-total edge case. Each column/table landed with its own reconcile + pinned
+      test (see `realism-log.md`), so no separate `/data-collection:review-edit-regen-for-realism`
+      sweep was needed.

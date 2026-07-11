@@ -10,6 +10,8 @@ import polars as pl
 from potato_tornado.collections.labor.constants import (
     EMPLOYMENT,
     EMPLOYMENT_WEIGHTS,
+    HIRE_SOURCE_WEIGHTS,
+    HIRE_SOURCES,
     LOCATION_WEIGHTS,
     LOCATIONS,
     ROLE_WEIGHTS,
@@ -103,6 +105,22 @@ def build_employees(ctx: GenContext) -> pl.DataFrame:
     # Work arrangement — flat org-wide mix. Own child stream.
     work_mode = ctx.rng.child("work_mode").numpy.choice(WORK_MODES, size=n, p=WORK_MODE_WEIGHTS)
 
+    # Recruiting channel — flat org-wide mix. Own child stream so it doesn't shift
+    # the draws above.
+    hire_source = ctx.rng.child("hire_source").numpy.choice(
+        np.array(HIRE_SOURCES, dtype=object), size=n, p=HIRE_SOURCE_WEIGHTS
+    )
+
+    # Prior experience (years before joining the firm): a Poisson base plus a
+    # seniority offset (+2 years per role rung), so senior staff carry more outside
+    # experience on average. An external seniority axis, drawn INDEPENDENTLY of pay
+    # (own child stream, not tied to hourly_rate). Non-negative by construction.
+    exp_rung = {r: i for i, r in enumerate(ROLES)}
+    exp_offset = np.array([2 * exp_rung[r] for r in roles], dtype=np.int64)
+    prior_experience_years = (
+        ctx.rng.child("experience").numpy.poisson(4.0, size=n).astype(np.int64) + exp_offset
+    )
+
     # Termination: ~18% of staff have left the firm at some point. A leaver's date is
     # a tenure offset after hire (≥90 days), kept strictly before `end_date`; active
     # staff have null. Flat attrition — drawn independently of practice, role, and
@@ -156,6 +174,8 @@ def build_employees(ctx: GenContext) -> pl.DataFrame:
             "target_utilization_pct": pl.Series(target_util, dtype=pl.Int64),
             "primary_skill": primary_skill,
             "work_mode": work_mode,
+            "hire_source": hire_source,
+            "prior_experience_years": pl.Series(prior_experience_years, dtype=pl.Int64),
             "manager_id": pl.Series(manager_id, dtype=pl.Utf8),
             # Home office. Drawn last so it doesn't shift the draws above.
             "location_city": ctx.dist.choice(n, LOCATIONS, LOCATION_WEIGHTS),

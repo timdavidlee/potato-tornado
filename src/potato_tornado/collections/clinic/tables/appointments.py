@@ -15,8 +15,20 @@ import polars as pl
 
 from potato_tornado.collections.clinic.constants import SPECIALTY_VISIT_MIX, VISIT_TYPES
 from potato_tornado.core.collection import GenContext
+from potato_tornado.core.distributions import Distributions
 
 _VISIT_TYPE_NAMES = [v[0] for v in VISIT_TYPES]
+
+# How the booking reached the clinic. Flat categorical, independent of everything
+# else on the appointment (a booking-funnel dimension, not a no-show driver).
+_BOOKING_CHANNELS = ["phone", "portal", "walk_in", "referral"]
+_BOOKING_CHANNEL_WEIGHTS = [0.40, 0.35, 0.10, 0.15]
+
+# Appointment reminder. ~70% of bookings get a reminder; when sent it goes out over
+# one channel (else the channel is null). Deliberately flat — it does NOT lower the
+# no-show rate here; the reminder->attendance lift is a scenario, left unplanted.
+_REMINDER_CHANNELS = ["sms", "email"]
+_REMINDER_CHANNEL_WEIGHTS = [0.6, 0.4]
 
 # Lifecycle hazards. A booked slot is first checked for "still on the books"
 # (scheduled), then "called off ahead of time" (cancelled); whatever survives is
@@ -52,6 +64,18 @@ def build_appointments(ctx: GenContext) -> pl.DataFrame:
     lead_days = np.clip(ctx.dist.lognormal(n, median=10, sigma=0.8), 0, 120).astype(int)
     visit_type = _draw_visit_types(ctx, booked["provider_id"])
     status = _assign_status(ctx, lead_days, visit_type)
+    booking_channel = Distributions(ctx.rng.child("booking_channel")).choice(
+        n, _BOOKING_CHANNELS, _BOOKING_CHANNEL_WEIGHTS
+    )
+    reminder_sent = Distributions(ctx.rng.child("reminder_sent")).bernoulli(n, p=0.7)
+    channel_draw = Distributions(ctx.rng.child("reminder_channel")).choice(
+        n, _REMINDER_CHANNELS, _REMINDER_CHANNEL_WEIGHTS
+    )
+    # Channel is populated only when a reminder was actually sent; null otherwise.
+    reminder_channel = np.array(
+        [c if sent else None for c, sent in zip(channel_draw, reminder_sent, strict=True)],
+        dtype=object,
+    )
 
     return pl.DataFrame(
         {
@@ -63,6 +87,9 @@ def build_appointments(ctx: GenContext) -> pl.DataFrame:
             "scheduled_at": booked["slot_at"],
             "lead_days": lead_days,
             "status": status,
+            "booking_channel": booking_channel,
+            "reminder_sent": reminder_sent,
+            "reminder_channel": reminder_channel,
         }
     )
 

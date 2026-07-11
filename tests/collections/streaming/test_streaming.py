@@ -64,6 +64,16 @@ def test_active_subscriptions_have_no_end_date(streaming: dict[str, pl.DataFrame
     assert active.filter(pl.col("end_date").is_not_null()).height == 0
 
 
+def test_cancelled_subscriptions_settle_within_the_window(
+    streaming: dict[str, pl.DataFrame],
+) -> None:
+    # The lifecycle is right-censored at the snapshot: a cancelled subscription's
+    # end_date always falls strictly before the window end (a churn dated on/after
+    # end_date reads active instead), so none settle at or past the window.
+    cancelled = streaming["subscriptions"].filter(pl.col("status") == "cancelled")
+    assert cancelled.filter(pl.col("end_date") >= GenerationConfig().end_date).height == 0
+
+
 @pytest.mark.parametrize(
     ("table", "column"), [("subscribers", "signup_date"), ("rentals", "rented_date")]
 )
@@ -206,3 +216,17 @@ def test_avg_rating_is_within_bounds(streaming: dict[str, pl.DataFrame]) -> None
 def test_rental_rating_is_null_or_one_to_five(streaming: dict[str, pl.DataFrame]) -> None:
     rated = streaming["rentals"]["rating"].drop_nulls()
     assert set(rated.to_list()) <= {1, 2, 3, 4, 5}
+
+
+def test_mrr_matches_the_plan_price_and_cadence(streaming: dict[str, pl.DataFrame]) -> None:
+    # MRR is a pure derivation: monthly subscriptions book the list price, annual ones
+    # the "2 months free" monthly-equivalent (round(monthly_price * 10/12, 2)).
+    joined = streaming["subscriptions"].join(
+        streaming["plans"].select("plan", "monthly_price"), on="plan"
+    )
+    expected = (
+        pl.when(pl.col("billing_cycle") == "annual")
+        .then((pl.col("monthly_price") * 10 / 12).round(2))
+        .otherwise(pl.col("monthly_price"))
+    )
+    assert joined.filter(pl.col("mrr") != expected).height == 0

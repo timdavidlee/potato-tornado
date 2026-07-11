@@ -47,6 +47,21 @@ _PERIL_P = _PERIL_P / _PERIL_P.sum()
 _REPORTED_CHANNELS = ["phone", "app", "broker", "web"]
 _REPORTED_CHANNEL_WEIGHTS = [0.40, 0.20, 0.25, 0.15]
 
+# Claim-context flags, each drawn **flat** off its own child stream (no coupling to
+# severity, tier, or adjuster — those signals are deferred candidates). Single-table
+# literals.
+# - `at_fault`: liability posture, meaningful only for auto claims (non-null iff the
+#   policy's product is auto, else null); flat 0.55 among auto claims.
+# - `catastrophe_flag`: whether the claim belongs to a catastrophe event — the only
+#   flag conditioned on an existing column (raised on the `weather` peril), but the
+#   *rate*, not severity, varies; severity stays peril-independent (see the rubric).
+# - `fraud_flag` / `litigated`: low flat base rates (SIU referral / attorney rep).
+_AT_FAULT_P = 0.55
+_CAT_WEATHER_P = 0.35
+_CAT_BASE_P = 0.03
+_FRAUD_P = 0.04
+_LITIGATION_P = 0.10
+
 
 def build_claims(ctx: GenContext) -> pl.DataFrame:
     policies = ctx.table("policies")
@@ -101,14 +116,35 @@ def build_claims(ctx: GenContext) -> pl.DataFrame:
     adjuster_ids = ctx.table("adjusters")["adjuster_id"].to_list()
     adjuster_idx = ctx.rng.child("adjuster").numpy.integers(0, len(adjuster_ids), total)
 
+    # Peril hoisted to a local (same stream/call, so byte-identical to before) so the
+    # catastrophe rate can condition on it below without a second peril draw.
+    peril = ctx.rng.child("peril").numpy.choice(
+        np.asarray(PERILS, dtype=object), size=total, p=_PERIL_P
+    )
+
+    # `at_fault` is non-null only for auto claims. Draw a flat auto liability flag, then
+    # null it out on non-auto claims. Own child stream; `product` comes from the policy
+    # already read above (no new ordering).
+    product_per_claim = policies["product"].to_numpy()[policy_idx]
+    auto_at_fault = ctx.rng.child("at_fault").numpy.random(total) < _AT_FAULT_P
+    at_fault = [
+        bool(auto_at_fault[i]) if product_per_claim[i] == "auto" else None for i in range(total)
+    ]
+
+    # Catastrophe / fraud / litigation flags — each flat off its own child stream. Only
+    # the catastrophe *rate* conditions on peril (weather ⇒ 0.35, else 0.03); fraud and
+    # litigation are constant base rates.
+    cat_p = np.where(peril == "weather", _CAT_WEATHER_P, _CAT_BASE_P)
+    catastrophe_flag = ctx.rng.child("catastrophe").numpy.random(total) < cat_p
+    fraud_flag = ctx.rng.child("fraud").numpy.random(total) < _FRAUD_P
+    litigated = ctx.rng.child("litigation").numpy.random(total) < _LITIGATION_P
+
     return pl.DataFrame(
         {
             "claim_id": [f"CLM-{i:07d}" for i in range(1, total + 1)],
             "policy_id": [policy_ids[p] for p in policy_idx],
             "claim_date": claim_date,
-            "peril": ctx.rng.child("peril").numpy.choice(
-                np.asarray(PERILS, dtype=object), size=total, p=_PERIL_P
-            ),
+            "peril": peril,
             "reported_amount": reported_amount,
             "status": ctx.dist.choice(total, _STATUSES, _STATUS_WEIGHTS),
             "adjuster_id": [adjuster_ids[i] for i in adjuster_idx],
@@ -117,5 +153,9 @@ def build_claims(ctx: GenContext) -> pl.DataFrame:
                 size=total,
                 p=_REPORTED_CHANNEL_WEIGHTS,
             ),
+            "at_fault": at_fault,
+            "catastrophe_flag": catastrophe_flag,
+            "fraud_flag": fraud_flag,
+            "litigated": litigated,
         }
     )

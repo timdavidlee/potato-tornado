@@ -16,6 +16,7 @@ import pytest
 from potato_tornado.collections.labor.constants import (
     BILLING_TYPES,
     ENABLING_DEPARTMENTS,
+    HIRE_SOURCES,
     INDUSTRIES,
     LOCATIONS,
     PROJECT_PRIORITIES,
@@ -66,6 +67,21 @@ def test_assignments_only_roster_employed_staff(labor: dict[str, pl.DataFrame]) 
         )
     )
     assert invalid.height == 0
+
+
+def test_assigned_at_is_before_shift_and_after_hire(labor: dict[str, pl.DataFrame]) -> None:
+    # The roster is published before the shift starts and never before the employee
+    # was hired.
+    joined = (
+        labor["assignments"]
+        .join(labor["shifts"].select("shift_id", "planned_start"), on="shift_id")
+        .join(labor["employees"].select("employee_id", "hire_date"), on="employee_id")
+    )
+    out_of_band = joined.filter(
+        (pl.col("assigned_at") > pl.col("planned_start"))
+        | (pl.col("assigned_at").dt.date() < pl.col("hire_date"))
+    )
+    assert out_of_band.height == 0
 
 
 def test_rostering_stays_within_department(labor: dict[str, pl.DataFrame]) -> None:
@@ -202,6 +218,17 @@ def test_member_bill_rate_is_set_exactly_for_billable_members(
     assert inconsistent.height == 0
 
 
+def test_member_billed_hours_is_set_exactly_for_billable_members(
+    labor: dict[str, pl.DataFrame],
+) -> None:
+    joined = labor["project_members"].join(
+        labor["employees"].select("employee_id", "is_billable"), on="employee_id"
+    )
+    # billed_hours is populated iff the member is client-billable; null otherwise.
+    inconsistent = joined.filter(pl.col("is_billable") == pl.col("billed_hours").is_null())
+    assert inconsistent.height == 0
+
+
 def test_practice_type_matches_enabling_set(labor: dict[str, pl.DataFrame]) -> None:
     expected = labor["departments"].select(
         pl.when(pl.col("name").is_in(list(ENABLING_DEPARTMENTS)))
@@ -226,6 +253,14 @@ def test_work_mode_is_from_the_catalog(labor: dict[str, pl.DataFrame]) -> None:
     assert set(labor["employees"]["work_mode"].to_list()) <= set(WORK_MODES)
 
 
+def test_hire_source_is_from_the_catalog(labor: dict[str, pl.DataFrame]) -> None:
+    assert set(labor["employees"]["hire_source"].to_list()) <= set(HIRE_SOURCES)
+
+
+def test_prior_experience_years_is_non_negative(labor: dict[str, pl.DataFrame]) -> None:
+    assert labor["employees"].filter(pl.col("prior_experience_years") < 0).height == 0
+
+
 def test_target_utilization_is_set_exactly_for_billable_staff(
     labor: dict[str, pl.DataFrame],
 ) -> None:
@@ -241,7 +276,7 @@ def test_no_show_entries_are_never_billable(labor: dict[str, pl.DataFrame]) -> N
     assert entries.filter(pl.col("no_show") & pl.col("billable")).height == 0
 
 
-@pytest.mark.parametrize("column", ["approval_status", "submitted_late"])
+@pytest.mark.parametrize("column", ["approval_status", "submitted_late", "entry_source"])
 def test_timesheet_fields_are_set_exactly_for_worked_entries(
     labor: dict[str, pl.DataFrame], column: str
 ) -> None:
@@ -335,8 +370,43 @@ def test_project_department_ids_reference_departments(labor: dict[str, pl.DataFr
     assert set(labor["projects"]["department_id"].to_list()) <= dept_ids
 
 
+def test_project_client_ids_reference_clients(labor: dict[str, pl.DataFrame]) -> None:
+    client_ids = set(labor["clients"]["client_id"].to_list())
+    assert set(labor["projects"]["client_id"].to_list()) <= client_ids
+
+
+def test_engagement_manager_ids_reference_employees(labor: dict[str, pl.DataFrame]) -> None:
+    emp_ids = set(labor["employees"]["employee_id"].to_list())
+    assert set(labor["projects"]["engagement_manager_id"].to_list()) <= emp_ids
+
+
 def test_project_target_end_is_after_start(labor: dict[str, pl.DataFrame]) -> None:
     assert labor["projects"].filter(pl.col("target_end_date") <= pl.col("start_date")).height == 0
+
+
+def test_completed_projects_end_within_window(labor: dict[str, pl.DataFrame]) -> None:
+    # actual_end_date is right-censored at the exclusive window end (2025-01-01 on
+    # the fixture): a completion that would land on/after it is unobservable at the
+    # snapshot, so the project is downgraded to active with a null actual_end_date.
+    # No completed project therefore ends on/after the window end.
+    assert (
+        labor["projects"]
+        .filter((pl.col("status") == "completed") & (pl.col("actual_end_date") >= date(2025, 1, 1)))
+        .height
+        == 0
+    )
+
+
+def test_contract_signed_date_is_before_start_and_in_window(
+    labor: dict[str, pl.DataFrame],
+) -> None:
+    # The sale closes before the project starts, and never predates the window
+    # (2022-01-01 is the fixture's inclusive lower bound).
+    out_of_band = labor["projects"].filter(
+        (pl.col("contract_signed_date") > pl.col("start_date"))
+        | (pl.col("contract_signed_date") < date(2022, 1, 1))
+    )
+    assert out_of_band.height == 0
 
 
 def test_member_employee_ids_reference_employees(labor: dict[str, pl.DataFrame]) -> None:
@@ -438,3 +508,36 @@ def test_project_lead_is_the_most_senior_member(labor: dict[str, pl.DataFrame]) 
         pl.col("rung").max().alias("max_rung"),
     )
     assert per_project.filter(pl.col("lead_rung") != pl.col("max_rung")).height == 0
+
+
+def test_employee_skill_employee_ids_reference_employees(labor: dict[str, pl.DataFrame]) -> None:
+    emp_ids = set(labor["employees"]["employee_id"].to_list())
+    assert set(labor["employee_skills"]["employee_id"].to_list()) <= emp_ids
+
+
+def test_performance_review_ratings_are_within_scale(labor: dict[str, pl.DataFrame]) -> None:
+    reviews = labor["performance_reviews"]
+    assert reviews.filter((pl.col("rating") < 1) | (pl.col("rating") > 5)).height == 0
+
+
+def test_expense_project_ids_reference_projects(labor: dict[str, pl.DataFrame]) -> None:
+    project_ids = set(labor["projects"]["project_id"].to_list())
+    assert set(labor["expenses"]["project_id"].to_list()) <= project_ids
+
+
+def test_time_off_spells_sit_within_employment(labor: dict[str, pl.DataFrame]) -> None:
+    # A leave spell starts on/after hire, ends on/after it starts, and never on/after
+    # the employee left the firm.
+    joined = labor["time_off"].join(
+        labor["employees"].select("employee_id", "hire_date", "termination_date"),
+        on="employee_id",
+    )
+    invalid = joined.filter(
+        (pl.col("start_date") < pl.col("hire_date"))
+        | (pl.col("end_date") < pl.col("start_date"))
+        | (
+            pl.col("termination_date").is_not_null()
+            & (pl.col("end_date") >= pl.col("termination_date"))
+        )
+    )
+    assert invalid.height == 0
