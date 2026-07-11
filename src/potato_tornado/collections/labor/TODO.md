@@ -263,24 +263,184 @@ or juniors churning faster, item 10).
 - **Unlocks:** org hierarchy / span-of-control analysis, and "who staffs whom" roll-ups.
 - **Class:** realism enrichment (an org-tree dimension). Not scenario-bearing on its own.
 
+## Round 2 survey (2026-07-11)
+
+A second field-enrichment pass over the now-saturated single-column backlog above. The round-1
+quick-win and high-leverage *columns* are all built, so round 2's value is mostly in **new
+tables** — the collection models rich per-employee and per-project attributes but still has no
+client, leave, expense, review, or multi-skill entities. Same rules as round 1: name-keyed
+child streams, don't reorder existing draws, reconcile `realism-guidance.md` + pin invariant
+tests after each lands. Scenario-bearing items route to `/scenario:draft-or-propose labor`, not
+the realism command. No new `core/distributions.py` helper is needed — every draw below composes
+from existing `ctx.dist` (`choice` / `bernoulli` / `integers` / `clamped_normal` / `lognormal` /
+`money` / `poisson` / `dates_between`), `ctx.rng.child`, and `ctx.entities.companies` / `.cities`.
+
+### Quick wins (realism enrichment)
+
+- [ ] **`employees.hire_source`** (`Utf8`, `{referral, agency, campus, direct, rehire}`) —
+  `ctx.dist.choice` weighted (~0.28 / 0.22 / 0.20 / 0.25 / 0.05) on a
+  `ctx.rng.child("hire_source")` stream drawn after the existing employee draws. Unlocks:
+  recruiting-channel mix and a slice for attrition / quality-of-hire. Flat here; *referrals stay
+  longer / churn less* is the scenario-bearing variant → `/scenario:draft-or-propose`.
+- [ ] **`employees.prior_experience_years`** (`Int64`) — years of experience before joining the
+  firm; `ctx.dist.poisson(~6)` (or `clamped_normal`) nudged up by an offset keyed to `role` rung,
+  own child stream. Unlocks: experience-vs-pay / experience-vs-role analysis — an external
+  seniority axis distinct from the internal `role` ladder. Flat realism.
+- [ ] **`time_entries.entry_source`** (`Utf8`, `{badge, mobile, web, manual}`) — how the punch
+  was captured; `ctx.dist.choice` weighted on the existing `timesheet` child stream (or a new
+  `entry_source` child), **null on no-show rows** (mirrors the null-clock / `approval_status`
+  rule). Unlocks: timekeeping-system mix. Flat; *manual entries get rejected / corrected more* is
+  the scenario-bearing echo of the timesheet-compliance signal.
+- [ ] **`projects.contract_signed_date`** (`Date`, `≤ start_date`) — the sale-close date, a
+  right-skewed lead before `start_date` (`ctx.dist.lognormal` days back) on a
+  `ctx.rng.child("signed")` stream, clamped so it never crosses the window start. Unlocks:
+  sales-cycle length (`start_date − contract_signed_date`) and booking-vs-start backlog. Flat.
+
+### High-leverage additions
+
+#### R2-1. `project_members.billed_hours`
+- [ ] Actual hours the member billed to the project (`Float64`), so project revenue becomes
+  *computable* rather than only approximable: `Σ billed_hours × bill_rate`. Draw sketch:
+  `allocation_pct/100 × weekly_capacity × weeks(rolled_on → rolled_off) × a realization factor`
+  on a `ctx.rng.child("billed_hours")` stream; `null` for non-billable members (mirrors the
+  existing null `bill_rate` rule). Stays a staffing-side figure — deliberately **not** reconciled
+  against `time_entries` (the decoupling is intentional).
+- **Unlocks:** realized project revenue and gross margin (`billed_hours × (bill_rate −
+  hourly_rate)`) rolled up per project / practice / client — closes the standing
+  realism-guidance note that "`bill_rate × hours` revenue can be *approximated* but not
+  reconciled against actual delivery time".
+- **Class:** realism enrichment. **Scenario-bearing variant:** fixed-fee projects bill *fewer*
+  hours than budgeted (write-offs) while T&M bill to plan → `/scenario:draft-or-propose` (the
+  natural partner to the realization item 2 and the budget-overrun item 6).
+
+#### R2-2. `projects.engagement_manager_id`
+- [ ] The accountable partner / owner for the engagement (`Utf8` FK → `employees.employee_id`),
+  distinct from the on-project `role_on_project = 'lead'` in `project_members`. Draw sketch: pick
+  a senior employee (Supervisor / Manager rung) whose tenure covers `start_date`, on a
+  `ctx.rng.child("engagement_mgr")` stream (`depends_on` already includes `employees`).
+- **Unlocks:** book-of-business by partner (revenue / CSAT / project count per engagement
+  manager), partner span-of-control — the accountable-owner dimension the org chart
+  (`manager_id`) doesn't capture on the delivery side.
+- **Class:** realism enrichment. **Scenario-bearing variant:** a few partners carry an outsized
+  book / higher CSAT / more overruns → `/scenario:draft-or-propose` with the concentration named.
+
+#### R2-3. `assignments.assigned_at`
+- [ ] When the roster was published for the shift (`Datetime`); the scheduling lead time is
+  `shift.planned_start − assigned_at`. Draw sketch: `planned_start` minus a right-skewed lead
+  offset (`ctx.dist.lognormal`, median ~7 days, tail to same-day) on a
+  `ctx.rng.child("assigned_at")` stream, floored at the employee's `hire_date`.
+- **Unlocks:** scheduling lead-time / short-notice-staffing analysis; a new lever on attendance.
+- **Class:** **scenario-bearing** → short-notice shifts (small lead) no-show more — a staffing
+  echo of the clinic lead-time signal and the night-shift no-show gradient. Route to
+  `/scenario:draft-or-propose`; keep the lead-time draw flat (independent of `no_show`) if you
+  only want the realism dimension.
+
+## Candidate new tables (within this collection)
+
+New tables that join into `labor` (a new entity or event + its FK into an existing table),
+sketch-level. Three of these (`clients`, `time_off`, `employee_skills`) were previously parked
+under **Out of scope → `/data-collection:propose`** below — that note predated this command's
+support for *new tables within a collection*, so they are **in scope** here (a whole new
+top-level *domain* would still be propose's job). Each needs a new `tables/<table>.py` builder
+and a `TableSpec` (with `depends_on`) in `__init__.py`, but **no** `core/registry.py` change.
+
+### `clients`
+- [ ] **Grain:** one row per client. **Joins:** `projects` gains a `client_id`
+  (`depends_on=("clients", …)`, FK `projects.client_id → clients`); the bare
+  `projects.client_name` string becomes this dim's `name`.
+- **Key columns:** `client_id` (`Utf8`), `name` (`ctx.entities.companies`), `tier` (`Utf8`
+  `{strategic, growth, mid, small}`, weighted), `industry` (moves here off `projects`, or keep
+  both), `relationship_start_date` (`Date`), `hq_city` (`ctx.entities.cities`, or `LOCATIONS`
+  for a clean join).
+- **Unlocks:** client-concentration (top-N clients' share of staffed hours / revenue),
+  revenue-by-tier, multi-project clients, and client tenure — none computable while
+  `client_name` is a bare per-project string that recurs only by chance.
+- **Class:** realism enrichment; **scenario-bearing variant:** revenue Pareto — a few
+  `strategic`-tier clients carry a large share of billed hours → `/scenario:draft-or-propose`.
+- **Wiring:** new `tables/clients.py` + `TableSpec`; `projects` gains `depends_on=("clients", …)`
+  and samples a `client_id`. Supersedes the "Out of scope: clients table → propose" note below.
+
+### `time_off`
+- [ ] **Grain:** one row per leave spell. **Joins:** `depends_on=("employees",)`, FK
+  `time_off.employee_id → employees`.
+- **Key columns:** `leave_type` (`Utf8` `{vacation, sick, holiday, unpaid, parental}`, weighted),
+  `start_date` / `end_date` (`Date`, inside the employee's `[hire_date, termination_date | end]`
+  window, `end ≥ start`), `hours` (`Int64`). A few spells per employee-year via
+  `ctx.dist.poisson`, own child stream.
+- **Unlocks:** a *truer utilization denominator* (available = `weekly_capacity_hours` − leave),
+  absence analysis, PTO-by-practice / tenure.
+- **Class:** realism enrichment; **scenario-bearing variant:** sick-leave clusters seasonally or
+  in a practice → `/scenario:draft-or-propose`.
+- **⚠ Tension to note:** the realism-guidance **deliberate simplification** "no PTO / holiday /
+  leave-of-absence spell" is currently *intentional* — realizing this table means deleting that
+  bullet and reconciling the utilization guidance in the same change. Supersedes the "Out of
+  scope: time_off → propose" note below.
+
+### `expenses`
+- [ ] **Grain:** one row per project expense line. **Joins:** `depends_on=("projects",
+  "project_members")`, FK `expenses.project_id → projects` (+ optional
+  `expenses.employee_id → employees` for who incurred it).
+- **Key columns:** `category` (`Utf8` `{travel, lodging, meals, subcontractor, software}`,
+  weighted), `amount` (`ctx.dist.money`, category-scaled median), `billable` (`Boolean`,
+  pass-through vs absorbed), `incurred_date` (`Date`, inside `[start_date, target_end_date]`).
+- **Unlocks:** project cost beyond labor (today `budget_amount` prices labor only), travel &
+  expense by practice / client, billable-expense recovery — fuller project economics.
+- **Class:** realism enrichment; **scenario-bearing variant:** travel-heavy spend on off-site /
+  satellite-staffed projects (echoes `off-site-staffing-by-location`) →
+  `/scenario:draft-or-propose`.
+- **Wiring:** new `tables/expenses.py` + `TableSpec`; no `registry.py` change.
+
+### `performance_reviews`
+- [ ] **Grain:** one row per employee per review cycle. **Joins:** `depends_on=("employees",)`,
+  FK `performance_reviews.employee_id → employees` and `reviewer_id → employees` (the
+  `manager_id`).
+- **Key columns:** `cycle` (`Utf8`, e.g. `2024-H2`), `rating` (`Int8` 1–5, skewed to 3–4 with a
+  mild curve), `promoted` (`Boolean`), on a `ctx.rng.child("reviews")` stream. Emit a row only
+  for cycles that fall after the employee's `hire_date` and before their `termination_date`.
+- **Unlocks:** performance-over-time, rating distribution, and rating → attrition / promotion /
+  pay analysis — the finer-grained history behind a single `employees.performance_rating` column.
+- **Class:** realism enrichment; **scenario-bearing variant:** low ratings precede termination,
+  or ratings ladder by practice → `/scenario:draft-or-propose`.
+- **Wiring:** new `tables/performance_reviews.py` + `TableSpec(depends_on=("employees",))`. A
+  single `employees.performance_rating` column is the lighter stand-in if a full history is more
+  than needed.
+
+### `employee_skills`
+- [ ] **Grain:** one row per (employee, skill) — the many-to-many bridge behind the single-valued
+  `employees.primary_skill`. **Joins:** `depends_on=("employees",)`, FK
+  `employee_skills.employee_id → employees`.
+- **Key columns:** `skill` (`Utf8`, drawn from the employee's practice `SKILLS_BY_DEPARTMENT` set
+  plus the occasional cross-practice skill), `proficiency` (`Utf8` `{beginner, intermediate,
+  expert}`), `certified` (`Boolean`). 1–4 skills per employee via `ctx.dist.integers` / `poisson`,
+  own child stream; include the employee's `primary_skill` so the bridge is consistent with it.
+- **Unlocks:** multi-skill staffing and skill-coverage / depth analysis, certification
+  compliance — the full matrix the single `primary_skill` column only samples.
+- **Class:** realism enrichment (not scenario-bearing on its own).
+- **Wiring:** new `tables/employee_skills.py` + `TableSpec(depends_on=("employees",))`.
+  Supersedes the "Out of scope: skills bridge → propose" note below.
+
 ## Out of scope (not field enrichment)
 
 - **A `clients` table** (client_id, industry, tier, contract start) with `projects.client_id`
-  as an FK is a *new entity*, not a column — if the client dimension needs its own attributes
-  beyond a name string on `projects`, that's `/data-collection:propose`, not this doc. The
-  quick-win `projects.client_name` / `projects.industry` columns are the in-scope stand-in.
+  as an FK — **now promoted to an in-scope candidate table** (see `clients` under *Candidate new
+  tables* above), since this command supports new tables that join into the collection. The
+  quick-win `projects.client_name` / `projects.industry` columns remain the lightweight stand-in
+  if the dim isn't built.
 - **A per-project timesheet** linking `time_entries` to `projects` (e.g.
   `time_entries.project_id`) is effectively a new bridge between the decoupled timekeeping and
   staffing halves; wiring shifts/assignments to projects is a modeling change (new depends_on
   and a shift→project mapping that doesn't exist today), closer to a new table than a field.
   Note it, but treat it as `/data-collection:propose` territory rather than realizing it here.
-- **A `skills` bridge** (employee-skill many-to-many, or a `skills` catalog table with FKs) is a
-  *new entity*. The single-valued `employees.primary_skill` column above is the in-scope
-  stand-in; a full multi-skill matrix is `/data-collection:propose` territory.
-- **A `time_off` / PTO table** (per-employee leave spells) is a new entity, not a column — it
-  would give a truer utilization denominator than `weekly_capacity_hours` alone, but belongs to
-  `/data-collection:propose`. (`employees.termination_date`, item 10, is the in-scope
-  single-column stand-in for the coarsest availability gap.)
+  The R2-1 `project_members.billed_hours` column above is the in-scope staffing-side stand-in
+  that makes project revenue computable without bridging the two halves.
+- **A `skills` bridge** (employee-skill many-to-many) — **now promoted to an in-scope candidate
+  table** (see `employee_skills` under *Candidate new tables* above). The single-valued
+  `employees.primary_skill` column remains the lightweight stand-in if the bridge isn't built.
+- **A `time_off` / PTO table** (per-employee leave spells) — **now promoted to an in-scope
+  candidate table** (see `time_off` under *Candidate new tables* above); it gives a truer
+  utilization denominator than `weekly_capacity_hours` alone. (`employees.termination_date`,
+  item 10, is the coarsest single-column availability stand-in.) Realizing it removes the "no
+  PTO / leave" deliberate simplification from `realism-guidance.md`.
 - No new `core/distributions.py` helper is required — every draw above composes from existing
   `ctx.dist` (`choice` / `bernoulli` / `integers` / `clamped_normal` / `lognormal` /
   `dates_between`), `ctx.rng.child`, and `ctx.entities.companies`.

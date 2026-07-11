@@ -32,3 +32,17 @@ scenarios*, i.e. signals to plant, not realism defects; open items in `TODO.md`)
   (`projects.budget_hours` / `.budget_amount` / `.actual_end_date` / `.client_satisfaction`).
   Each reconciled `realism-guidance.md` + invariant tests. Full record in [`TODO.md`](TODO.md).
   (`13793d9`)
+- **2026-07-11 — Round-2 field-enrichment survey (backlog only).** With the round-1
+  single-column backlog fully built, surveyed for what the saturated schema still can't answer
+  and appended a **Round 2** section to [`TODO.md`](TODO.md): **4 quick-win columns**
+  (`employees.hire_source` / `.prior_experience_years`, `time_entries.entry_source`,
+  `projects.contract_signed_date`), **3 high-leverage columns** (`project_members.billed_hours`
+  — makes project revenue computable; `projects.engagement_manager_id` — partner book-of-
+  business; `assignments.assigned_at` — scheduling lead-time, scenario-bearing), and **5
+  candidate new tables** (`clients` dim, `time_off` leave spells, `expenses`,
+  `performance_reviews`, `employee_skills` bridge). Promoted three prior *Out of scope →
+  propose* items (`clients` / `time_off` / `employee_skills`) into in-scope candidate tables now
+  that the command supports new tables within a collection, and curated the Out-of-scope bullets
+  accordingly. Nothing implemented — the realism-class items route to
+  `/data-collection:review-edit-regen-for-realism`, the scenario-bearing ones to
+  `/scenario:draft-or-propose labor`.
