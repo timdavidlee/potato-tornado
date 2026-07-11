@@ -169,6 +169,20 @@ def test_last_in_transit_hop_is_the_destination_hub(logistics: dict[str, pl.Data
     assert last_hop.filter(pl.col("facility_type") != "destination_hub").height == 0
 
 
+def test_multi_hop_shipments_vary_their_hub_city(logistics: dict[str, pl.DataFrame]) -> None:
+    # Each in_transit hop draws its own hub city, so a multi-hop parcel must not
+    # repeat one label across every line-haul scan (this was 100% before the
+    # per-hop draw). Allow a tiny slack for the rare faker city collision.
+    hops = (
+        logistics["scan_events"]
+        .filter(pl.col("scan_type") == "in_transit")
+        .group_by("shipment_id")
+        .agg(pl.len().alias("hops"), pl.col("location_city").n_unique().alias("distinct"))
+        .filter(pl.col("hops") > 1)
+    )
+    assert hops.filter(pl.col("distinct") == 1).height / hops.height < 0.05
+
+
 def test_parcel_dimensions_are_positive(logistics: dict[str, pl.DataFrame]) -> None:
     ships = logistics["shipments"]
     assert (

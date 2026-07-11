@@ -20,6 +20,17 @@ _REGIONS = ["Northeast", "South", "Midwest", "West"]
 _COMMISSION_LOW = 0.08
 _COMMISSION_HIGH = 0.15
 
+# Tenure (years as a producer) is right-skewed, not uniform: an agency keeps many
+# newer producers and a thinning tail of veterans. Geometric-style decaying weights
+# over [1, 30] (ratio 0.90) concentrate mass at low tenure with a smooth taper — no
+# pile-up at the boundary (value 30 is the smallest weight). Single-table literals.
+_TENURE_MIN = 1
+_TENURE_MAX = 30
+_TENURE_DECAY = 0.90
+_TENURE_VALUES = np.arange(_TENURE_MIN, _TENURE_MAX + 1)
+_TENURE_P = _TENURE_DECAY ** (_TENURE_VALUES - _TENURE_MIN)
+_TENURE_P = _TENURE_P / _TENURE_P.sum()
+
 
 def build_brokers(ctx: GenContext) -> pl.DataFrame:
     n = ctx.n(40)
@@ -33,7 +44,9 @@ def build_brokers(ctx: GenContext) -> pl.DataFrame:
             "full_name": people["full_name"],
             "email": people["email"],
             "region": ctx.dist.choice(n, _REGIONS),
-            "tenure_years": ctx.rng.child("tenure").numpy.integers(1, 31, size=n),
+            "tenure_years": ctx.rng.child("tenure").numpy.choice(
+                _TENURE_VALUES, size=n, p=_TENURE_P
+            ),
             "commission_rate": np.round(commission_rate, 3),
         }
     )

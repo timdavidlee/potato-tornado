@@ -82,6 +82,11 @@ ACQUISITION_CHANNEL_WEIGHTS = [0.34, 0.24, 0.18, 0.14, 0.10]
 BILLING_CYCLES = ["monthly", "annual"]
 BILLING_CYCLE_WEIGHTS = [0.80, 0.20]
 
+# "2 months free": an annual plan is priced at 10x the monthly rate, so the
+# monthly-equivalent MRR of an annual subscription is annual_price / 12 =
+# monthly_price * 10 / 12. Feeds the derived `subscriptions.mrr` column.
+ANNUAL_MRR_FACTOR = 10 / 12
+
 # --- Title catalogue -----------------------------------------------------------
 # Each title pairs a globally-famous public figure with a plausible show in a
 # genre they are NOT known for — the comedic device is the mismatch. Names are

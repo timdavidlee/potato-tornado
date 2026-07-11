@@ -31,6 +31,13 @@ _TENURE_VALUES = np.arange(_TENURE_MAX + 1)
 _TENURE_P = _TENURE_DECAY**_TENURE_VALUES
 _TENURE_P = _TENURE_P / _TENURE_P.sum()
 
+# Pre-window claims history count — a right-skewed Poisson with a **single**
+# tier-independent rate (most holders have none, a few have a couple). Deliberately
+# **flat**: the same λ for every risk tier, so it carries no experience-rating signal
+# (frequency rising with prior history is a candidate scenario, not planted here).
+# Own child stream. Single-table literal.
+_PRIOR_CLAIMS_LAMBDA = 0.6
+
 # US states (+ DC) with approximate resident population in millions, so holder
 # geography is population-weighted rather than uniform — a coarser, joinable geography
 # than the free-text `city`. Single-table literal: only `policyholders` reads it.
@@ -113,6 +120,9 @@ def build_policyholders(ctx: GenContext) -> pl.DataFrame:
             ),
             "tenure_years": ctx.rng.child("tenure").numpy.choice(
                 _TENURE_VALUES, size=n, p=_TENURE_P
+            ),
+            "prior_claims_count": ctx.rng.child("prior_claims").numpy.poisson(
+                _PRIOR_CLAIMS_LAMBDA, size=n
             ),
         }
     )

@@ -18,15 +18,19 @@ update the matching line below in the same change.
   `party_size ∈ [1, 6]`.
 - **Stay drifts, doesn't teleport.** `stays.actual_nights` differs from the reservation's
   `nights` by at most −2 (early checkout) to +3 (extension), and is ≥ 1;
-  `room_revenue = nightly_rate × actual_nights` exactly.
+  `room_revenue = nightly_rate × actual_nights` exactly — where `stays.nightly_rate` is the
+  calendar-adjusted **billed** rate (rack × season × weekend, see *Rate seasonality & weekend
+  lift* below), not the flat rack rate in `room_types`.
 - **Room revenue is net of tax; the wedge is separate.** `stays.room_revenue` is the net room
   charge — ADR / RevPAR read straight off it. `stays.taxes_fees ≥ 0` is a deterministic wedge
   on top: `room_revenue × VAT_country + actual_nights × city_tax_city`, so it's fully fixed by
   the property's country/city and the stay's revenue and nights (no RNG). It is never rolled
   into `room_revenue`.
 - **Every property offers the full ladder.** `room_types` has all four types per property;
-  `nightly_rate = base × location_multiplier` with a 0.7× floor, so rates stay positive and
-  keep the Standard < Deluxe < Suite < Penthouse ordering.
+  the **rack** `room_types.nightly_rate = base × location_multiplier` with a 0.7× floor, so
+  rates stay positive and keep the Standard < Deluxe < Suite < Penthouse ordering. (`stays`
+  bills a calendar-adjusted rate off this rack — see *Rate seasonality & weekend lift* below —
+  so `stays.nightly_rate` is not equal to `room_types.nightly_rate`.)
 - **Occupancy is bounded.** `demand_forecast.actual_occupied_rooms ≤ total_rooms`; forecast
   is the actual perturbed by multiplicative noise (Normal(1.0, `sd`) with `sd`=0.09 on
   weekdays, 0.22 on weekends) and clipped to `[0, total_rooms]`; exactly one row per property
@@ -162,6 +166,15 @@ update the matching line below in the same change.
   and by region Iberia ≈0.085 < Western Europe ≈0.109. See
   `scenarios/tax-load-lighter-in-iberia.md`.
 - **Location pricing.** Per-property nightly-rate multiplier ~ Normal(1.0, 0.12).
+- **Rate seasonality & weekend lift.** `stays.nightly_rate` is the **billed** rate, not the flat
+  rack: the room's rack rate (`room_types.nightly_rate`) times a day-of-year summer season factor
+  (cosine, amplitude `_RATE_SEASON_AMP` = 0.15, peak mid-July at `_RATE_PEAK_DOY` = 196 — matching
+  `reservations._PEAK_DOY` so price peaks with demand, giving a peak-day:trough-day rate of
+  `(1 + 0.15)/(1 − 0.15) ≈ 1.35×`) and a weekend-arrival lift (`_RATE_WEEKEND_LIFT` = 1.10 for
+  Fri–Sun arrivals, `weekday() ≥ 4`). Both are pure deterministic (no RNG), so they shift no other
+  column's draws; `room_revenue = nightly_rate × actual_nights` bills at this calendar-adjusted
+  rate, and `taxes_fees` derives from that `room_revenue`. So within one (property, room_class) the
+  billed rate spreads across many values over the calendar instead of sitting at a single rack rate.
 - **Seasonal arrivals.** Check-ins follow a repeating annual season with a summer peak and
   winter trough — a day-of-year cosine (amplitude 0.23, peak mid-July) gives a peak-day:
   trough-day ratio of `(1 + 0.23)/(1 − 0.23) ≈ 1.6×`; averaged into calendar months the
@@ -173,12 +186,16 @@ update the matching line below in the same change.
 
 - Six properties, one per city, capped at the `CITIES` catalog length.
 - The forecast is `actual × noise` with **no systematic bias** (it tracks actual by
-  construction, only the error *magnitude* varies by weekday/weekend) and no real forecasting
-  model — see `scenarios/forecast-tracks-actual-with-error.md`.
-- **No weekday/weekend rate variation** — nightly *rates* are flat over the calendar (only the
-  forecast error band varies by weekend, not price). (A strong candidate to promote into a new
-  scenario.) Arrival *demand*, by contrast, is seasonal — see
-  `scenarios/check-ins-peak-in-summer.md`.
+  construction, only the error *magnitude* varies by weekday/weekend — `sd` 0.09/0.22) and no
+  real forecasting model — see `scenarios/forecast-tracks-actual-with-error.md`. Making the
+  error band **covary with demand** (a bigger APE at low occupancy) was investigated
+  (2026-07-11) and is **un-pinnable here**, so the flat weekday/weekend band stays deliberate:
+  occupancy is a near-uniform ≈8% everywhere, so an `occ_frac`-scaled `sd` can't manufacture a
+  low-vs-high-occupancy differential, and integer rounding of `forecast_occupied_rooms` already
+  damps low-occupancy APE the *opposite* way. No demand-sensitivity coefficient flips low-occ
+  APE above high-occ APE while keeping the pinned
+  `test_forecast_tracks_actual_within_about_ten_percent` green (the full-scale MAPE ceiling is
+  0.16; the `sd` ≈0.3+ needed to move the signal triples MAPE past it).
 - Room type is drawn independently; channel depends on room class; lead time depends on
   channel (the OTA lead-time tail in `scenarios/lead-time-is-right-skewed.md`); and status
   depends on both channel (the OTA drop-off in `scenarios/reservation-funnel.md`) and
@@ -193,6 +210,17 @@ update the matching line below in the same change.
   capped at `total_rooms`. `demand_forecast` stays **property-level**, not per class, even
   though `room_types.room_count` now makes per-(property, class, day) occupancy derivable from
   `stays` — the by-class occupancy signal lives in the data, just not in the forecast grid.
+- **Check-outs spill past the window; `stays` are deliberately not right-censored.**
+  `stays.actual_check_out = actual_check_in + actual_nights` can land after the config
+  `end_date` when a late-window arrival's stay runs over — the window bounds the *anchor*
+  event (the booking/arrival), not the completed stay. This is an **intentional divergence**
+  from `labor` (project completions) and `streaming` (subscription cancellations), which now
+  right-censor their lifecycle end-dates: those carry an active-status flag and a nullable
+  end-date, so censoring an unresolved future is faithful. A hotel `stays` row is a
+  *completed-revenue* record — `room_revenue` / `taxes_fees` are already earned and the length
+  drift is already realised — so truncating or nulling its check-out would fabricate
+  early-checkouts and break the revenue identities for no analytical gain. Hotel is therefore
+  the documented exception the `labor` / `streaming` rubrics point back to.
 - **Arrivals have no day-of-week structure.** Check-ins are weighted by day-of-*year* (the
   summer season) but drawn flat across the day of the week — real hotels see a weekend-leisure /
   midweek-business arrival rhythm this data omits. (A candidate to promote into a new scenario.)

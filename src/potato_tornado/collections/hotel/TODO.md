@@ -106,11 +106,21 @@ Too-synthetic / drift candidates for `/data-collection:review-edit-regen-for-rea
 (existing data to investigate, not new fields). The realism-log records the *runs*; these are
 the *open* items. Most are documented candidates to *promote into scenarios*.
 
-- [ ] **No weekday/weekend or seasonal rate variation.** Rates are flat by calendar (a
-      documented simplification); a rate-by-day-of-week series reads implausibly flat — the
-      strongest realism-flavoured candidate.
-- [ ] **Forecast error band is flat across segments.** Documented as not varying by weekend; a
-      candidate to make error covary with demand.
+- [x] **No weekday/weekend or seasonal rate variation.** _Done (2026-07-11)._ `stays.nightly_rate`
+      now bills a calendar-adjusted rate — a day-of-year summer season (amp 0.15, peak mid-July,
+      matching the arrival-demand peak) plus a +10% Fri–Sun weekend lift — on top of the flat
+      room_types rack rate. Pure deterministic (no RNG), so no other column's draws shift;
+      `room_revenue`/`taxes_fees` recompute off it. Reconciled in `realism-guidance.md`, pinned by
+      `test_nightly_rate_varies_across_the_calendar`. De-latticed as realism (expected), no scenario.
+- [x] **Forecast error band is flat across segments.** _Investigated → infeasible (2026-07-11);
+      kept as a deliberate simplification, no generator change._ Making the error covary with
+      demand (bigger APE at low occupancy) is un-pinnable here: occupancy is a near-uniform ≈8%
+      everywhere, so an `occ_frac`-scaled `sd` can't create a low-vs-high differential, and
+      integer rounding of `forecast_occupied_rooms` already damps low-occupancy APE the opposite
+      way. No demand-sensitivity coefficient flips low-occ APE above high-occ APE while keeping
+      the pinned `test_forecast_tracks_actual_within_about_ten_percent` green (needs `sd` ≈0.3+,
+      tripling MAPE past its 0.16 ceiling). The flat weekday/weekend band (`sd` 0.09/0.22) stays
+      deliberate — recorded in `realism-guidance.md`.
 - [ ] **Star-rating review premium / YoY demand trend not wired.** Both are documented
       candidates to promote into scenarios (`/scenario:draft-or-propose`); today the cross-tabs
       read flat.

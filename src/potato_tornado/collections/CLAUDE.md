@@ -166,6 +166,13 @@ sub-population averages, round-number lattices, absent noise — for
 it and move it into the log as a run. Both are planning/history docs, not part of
 generation, so no test enforces them.
 
+The dated working checklists under [`docs/todos/`](../../../docs/todos/) (written by
+`/data-collection:scan-todos`, worked by `/data-collection:tackle-todos`) are
+**progress trackers, not a second backlog**: each links into this `TODO.md` for the
+item substance (recipe, class, definition of done) and carries none of its own, so the
+substance has a single place to edit. Ticking an item means ticking it in both the dated
+checklist and `TODO.md`, then recording the run in `realism-log.md`.
+
 ## Adding a collection
 
 1. `mkdir collections/<name>/` with `__init__.py`, `tables/` (+ `__init__.py`),

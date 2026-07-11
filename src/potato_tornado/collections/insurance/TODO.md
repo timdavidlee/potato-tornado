@@ -47,30 +47,49 @@ pinned in `test_insurance.py` and reconciled into `realism-guidance.md`.
 ## High-leverage additions
 
 ### 1. `policyholders.prior_claims_count`
-- [ ] A pre-window claims history count (`Int64`, right-skew via `ctx.dist.poisson`), higher
-      for `high_risk`.
+- [x] A pre-window claims history count (`Int64`, right-skew via `ctx.dist.poisson`), higher
+      for `high_risk`. **Flat column done 2026-07-11** — `Poisson(0.6)` on its own
+      `prior_claims` child stream with a **single tier-independent** λ (measured flat across
+      tiers: 0.59 / 0.60 / 0.53), so no experience-rating signal is planted. Pinned
+      `test_prior_claims_count_is_non_negative`. The *frequency-rises-with-prior-history*
+      signal remains deferred → `/scenario:draft-or-propose`.
 - **Unlocks:** experience-rating — does prior history predict in-window frequency?
 - **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: frequency
   rises with `prior_claims_count` within a tier (the actuarial "past predicts future"). Name
   it; don't plant it here.
 
 ### 2. `claims.at_fault` / catastrophe flag
-- [ ] `at_fault` (`Boolean`, auto only, else null) and `catastrophe_flag` (`Boolean`, correlated
-      with the `weather` peril and clustered in time).
+- [x] `at_fault` (`Boolean`, auto only, else null) and `catastrophe_flag` (`Boolean`, correlated
+      with the `weather` peril and clustered in time). **Flat columns done 2026-07-11** —
+      `at_fault` non-null iff product=auto (flat 0.55 among auto), `catastrophe_flag` rate
+      conditioned on peril (weather 0.35 / else 0.03, overall ≈ 0.10) with **no** severity
+      coupling. Peril draw hoisted to a local (byte-identical); own `at_fault`/`catastrophe`
+      child streams. Pinned `test_at_fault_non_null_iff_auto`. The *cat-vs-attritional severity*
+      signal remains deferred → `/scenario:draft-or-propose`.
 - **Unlocks:** cat-vs-attritional loss split; subrogation potential on not-at-fault claims.
 - **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: severity
   is far heavier on catastrophe claims (couples severity to a driver — today it's independent,
   a documented realism gap). Route it.
 
 ### 3. `claim_payments.adjuster_id` + settlement detail
-- [ ] `adjuster_id` (`Utf8`, a small adjuster pool), `settlement_method`
+- [x] `adjuster_id` (`Utf8`, a small adjuster pool), `settlement_method`
       (`Utf8`: check / ach / card), and `settlement_days` (derivable from `paid_date - claim_date`).
+      **Done 2026-07-11** — `settlement_days` = the existing `delay` (derived identity),
+      `settlement_method` flat (ach 0.45 / check 0.35 / card 0.20) on its own child stream,
+      `adjuster_id` carried from the settled claim (derived FK ∈ adjusters). Pinned
+      `test_settlement_days_within_bounds`. The *settlement-time-varies-by-adjuster* signal
+      remains deferred → `/scenario:draft-or-propose`.
 - **Unlocks:** claims-operations analysis — cycle time, adjuster workload.
 - **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: settlement
   time or partial-rate varies by adjuster (an operational-outlier subset).
 
 ### 4. `policies.renewal_count` + prior-term linkage
-- [ ] `renewal_count` (`Int64`, 0 = new business) marking how many times the policy renewed.
+- [x] `renewal_count` (`Int64`, 0 = new business) marking how many times the policy renewed.
+      **Done 2026-07-11** — resolved the cold-start tension by scoping it as an **abstract**
+      lifecycle marker (`geometric(0.45) − 1`, mode 0, own `renewal_count` child stream)
+      **decoupled from `start_date`** (measured corr ≈ 0.01); amended the Cold-start
+      simplification to say so. Pinned `test_renewal_count_is_non_negative`. A prior-term FK
+      remains a schema change, not pursued.
 - **Unlocks:** new-vs-renewal book split; retention curves; premium drift on renewal.
 - **Class:** realism enrichment (a lifecycle dimension). A prior-policy FK (linking successive
   terms) would be a **new relationship**, closer to a schema change — note if pursued.
@@ -90,9 +109,12 @@ pinned in `test_insurance.py` and reconciled into `realism-guidance.md`.
   "broker/region aggregates are uniform" realism gap into a teachable signal).
 
 ### 6. `claims.fraud_flag` (SIU referral)
-- [ ] `fraud_flag` / `siu_referral` (`Boolean`, low base rate ~0.03–0.06 via
+- [x] `fraud_flag` / `siu_referral` (`Boolean`, low base rate ~0.03–0.06 via
       `ctx.dist.bernoulli`), tilted toward `theft`/`liability` perils and larger
       `reported_amount`. Buildable today — no new `core/distributions.py` helper needed.
+      **Flat column done 2026-07-11** — flat ≈ 0.04 on its own `fraud` child stream, no peril
+      or severity tilt. Pinned `test_claim_flag_base_rate[fraud_flag]`. The *flagged-claims-
+      deny-more* signal remains deferred → `/scenario:draft-or-propose`.
 - **Unlocks:** fraud analytics — a major P&C domain the schema can't touch at all today
       (referral rate, fraud-adjusted loss ratio, the denial funnel by fraud status).
 - **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: flagged
@@ -100,8 +122,11 @@ pinned in `test_insurance.py` and reconciled into `realism-guidance.md`.
   a surprising subset cut across the existing adjudication funnel. Name it; don't plant it.
 
 ### 7. `claims.litigated` (attorney representation)
-- [ ] `litigated` (`Boolean`, ~0.08–0.12 via `ctx.dist.bernoulli`), concentrated on the
-      `liability` peril. Buildable today.
+- [x] `litigated` (`Boolean`, ~0.08–0.12 via `ctx.dist.bernoulli`), concentrated on the
+      `liability` peril. Buildable today. **Flat column done 2026-07-11** — flat ≈ 0.10 on its
+      own `litigation` child stream, no peril concentration. Pinned
+      `test_claim_flag_base_rate[litigated]`. The *litigation-tax* signal (heavier paid_amount +
+      longer cycle time) remains deferred → `/scenario:draft-or-propose`.
 - **Unlocks:** litigation economics — the "litigation tax" (litigated claims run heavier
       severity and much longer cycle time), a claims-strategy staple.
 - **Class:** **scenario-bearing** → `/scenario:draft-or-propose`. Candidate signal: litigated
@@ -110,10 +135,15 @@ pinned in `test_insurance.py` and reconciled into `realism-guidance.md`.
 
 ### Later / depends-on
 
-- [ ] **`claims.subrogation_recovery_amount`** (`Float64`, mostly 0 / nullable) — an insurer
+- [x] **`claims.subrogation_recovery_amount`** (`Float64`, mostly 0 / nullable) — an insurer
       recovery from an at-fault third party, offsetting `paid_amount`. **Depends on item 2's
       `at_fault`** (recovery is only plausible on not-at-fault claims). Unlocks: net-of-subro
-      loss ratio (gross paid vs. net paid). Realism enrichment once `at_fault` exists.
+      loss ratio (gross paid vs. net paid). **Done 2026-07-11** — built on **`claim_payments`**
+      (where `paid_amount` and, via the settled join, `at_fault` are both visible): positive
+      recovery only on not-at-fault claims (25% of eligible, ≈ 5–6% of payments), amount
+      0.20–0.60× `paid_amount` so recovery ≤ paid_amount, null on ineligible / 0.0 on
+      eligible-unrecovered. Own `subrogation` + `subrogation_amount` child streams. Pinned
+      `test_subrogation_recovery_only_on_not_at_fault`.
 
 ## Candidate new tables (within this collection)
 
@@ -150,16 +180,36 @@ These model real P&C structure but **contradict a documented Deliberate simplifi
 `realism-guidance.md` — noted here (not proposed blindly) so the tension is a conscious call,
 not a surprise. Each needs that simplification relaxed first.
 
-- [ ] **`claim_status_history`** (one row per claim status transition:
+- [x] **`claim_status_history`** (one row per claim status transition:
       reported → under_review → approved/partial/denied, with timestamps). Contradicts *"one
       payout per claim … adjudicated once to a single terminal status"* and *"no reopenings"*.
       Would unlock claim-lifecycle / cycle-time-between-stages analytics. Relax the single-status
-      simplification before building.
-- [ ] **`coverage_lines`** (one row per coverage line on a policy — e.g. auto's liability /
+      simplification before building. **Done 2026-07-11** — 3 transition rows/claim
+      (`reported → under_review → claims.status`), terminal `to_status` == `claims.status`,
+      strictly-increasing `changed_at` from `claim_date`, own `status_history` child stream (no
+      pre-existing column shifted). Relaxed the single-terminal-status simplification while
+      keeping the no-reopening/one-payout guarantee. Pinned
+      `test_status_history_terminal_matches_claim_status`. The cycle-time-varies-by-slice signal
+      remains a scenario candidate → `/scenario:draft-or-propose`.
+- [x] **`coverage_lines`** (one row per coverage line on a policy — e.g. auto's liability /
       collision / comprehensive, each with its own limit, deductible, and premium share).
       Contradicts *"coverage_limit takes a small set of values"* and the single-limit payout
       arithmetic, and reworks how a claim maps to a covered line. High value (line-level loss
-      ratios) but a deep change to the payout model.
+      ratios) but a deep change to the payout model. **Done 2026-07-11 as a MINIMAL ADDITIVE
+      (premium-side) breakdown** — the 10th insurance table, one row per line per policy
+      (`COVERAGE_LINES` catalog in `constants.py`). `line_premium_share` **sums to
+      `annual_premium`** to the cent (last line absorbs the remainder); `line_limit` = catalog
+      base × lognormal jitter rounded to \$100 (near-continuous, relaxing the lattice at the
+      **line grain only** — the policy-level `coverage_limit` lattice stays because payout reads
+      it); `line_deductible` = policy deductible where it applies, 0 on liability. Reads only
+      `policies`, off its own `coverage_split` / `coverage_limit_jitter` streams, so every
+      pre-existing table is byte-identical (`seed=7, scale=0.3`). **The payout path is NOT
+      rewired** — no claim maps to a line, `line_limit` is deliberately not reconciled against
+      `coverage_limit`. Pinned `test_coverage_line_shares_sum_to_annual_premium`; reconciled the
+      rubric (invariant + distribution + row-count lines, relaxed the lattice bullet, added a
+      "payout stays policy-level" simplification). **Line-level loss ratios** (map a claim's
+      peril to its covered line, price against `line_limit`) remain a deferred scenario →
+      `/scenario:draft-or-propose`.
 - [ ] **`reinsurance_treaties`** + ceded-loss allocation. Contradicts *"loss ratio is pure paid
       ÷ premium — no reinsurance"*, and is arguably its own domain (net-vs-gross, cessions) —
       closer to a **new collection** (→ `/data-collection:propose`) than an in-collection table.
@@ -186,10 +236,10 @@ the *open* items.
       signal, so any broker-level roll-up looks flat. **Evaluated 2026-07-02 — left as a
       deliberate simplification** ("carries no signal"); turning it into a signal is item 5's
       producer-performance scenario, not a realism fix.
-- [ ] **`brokers.tenure_years` is uniform over [1, 30].** Low-priority residual from the
-      2026-07-02 tenure sweep (which right-skewed the *policyholder* tenure). Only a 40-row dim,
-      so the flat shape is a weak tell — left as-is; right-skew it if the broker dim ever grows
-      or gains analytic weight.
+- [x] **`brokers.tenure_years` is uniform over [1, 30].** **Fixed 2026-07-11** — geometric
+      decay (ratio 0.90) over [1, 30] on the same `tenure` child stream (only that column
+      moved; mean ≈ 8.5, newer producers outnumber ≥20yr veterans, no boundary pile). Pinned
+      `test_broker_tenure_is_right_skewed`.
 
 ## When the list is done
 

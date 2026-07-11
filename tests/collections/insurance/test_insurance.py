@@ -91,6 +91,27 @@ def test_paid_date_is_on_or_after_claim_date(insurance: dict[str, pl.DataFrame])
     assert dated.filter(pl.col("paid_date") < pl.col("claim_date")).height == 0
 
 
+def test_settlement_days_within_bounds(insurance: dict[str, pl.DataFrame]) -> None:
+    # settlement_days is the derived (paid_date minus claim_date) delay, drawn as a 5-to-45
+    # day integer, so every value sits in [5, 45].
+    days = pl.col("settlement_days")
+    out_of_range = insurance["claim_payments"].filter((days < 5) | (days > 45))
+    assert out_of_range.height == 0
+
+
+def test_subrogation_recovery_only_on_not_at_fault(insurance: dict[str, pl.DataFrame]) -> None:
+    # Subrogation recovers from an at-fault third party, so a positive recovery is
+    # plausible only on a not-at-fault claim. `fill_null(True)` folds at-fault (True) and
+    # non-auto (null) claims together as ineligible, so any positive recovery there is a bug.
+    joined = insurance["claim_payments"].join(
+        insurance["claims"].select("claim_id", "at_fault"), on="claim_id"
+    )
+    bad = joined.filter(
+        (pl.col("subrogation_recovery_amount") > 0) & pl.col("at_fault").fill_null(True)
+    )
+    assert bad.height == 0
+
+
 def test_claim_date_on_or_after_policy_start(insurance: dict[str, pl.DataFrame]) -> None:
     dated = insurance["claims"].join(
         insurance["policies"].select("policy_id", "start_date"), on="policy_id"
@@ -169,6 +190,30 @@ def test_peril_mix_is_skewed_not_uniform(insurance_full: dict[str, pl.DataFrame]
     mix = insurance_full["claims"]["peril"].value_counts(normalize=True)
     share = dict(zip(mix["peril"].to_list(), mix["proportion"].to_list(), strict=True))
     assert share["fire"] < 0.10 < 0.25 < share["collision"]
+
+
+def test_at_fault_non_null_iff_auto(insurance: dict[str, pl.DataFrame]) -> None:
+    # `at_fault` is a liability posture meaningful only for auto claims: it is non-null
+    # exactly when the claim's policy product is auto, and null otherwise.
+    joined = insurance["claims"].join(
+        insurance["policies"].select("policy_id", "product"), on="policy_id"
+    )
+    mismatched = joined.filter(pl.col("at_fault").is_null() != (pl.col("product") != "auto"))
+    assert mismatched.height == 0
+
+
+@pytest.mark.parametrize(
+    ("column", "low", "high"),
+    [("fraud_flag", 0.02, 0.08), ("litigated", 0.06, 0.14)],
+)
+def test_claim_flag_base_rate(
+    insurance_full: dict[str, pl.DataFrame], column: str, low: float, high: float
+) -> None:
+    # Flat low base rates (SIU referral ≈ 0.04, attorney representation ≈ 0.10), drawn
+    # independently of tier / peril / severity. Full scale for a stable rate.
+    claims = insurance_full["claims"]
+    rate = claims.filter(pl.col(column)).height / claims.height
+    assert low < rate < high
 
 
 def test_claims_reference_adjusters(insurance: dict[str, pl.DataFrame]) -> None:
@@ -252,6 +297,16 @@ def test_broker_tenure_years_is_positive(insurance: dict[str, pl.DataFrame]) -> 
     assert insurance["brokers"].filter(pl.col("tenure_years") < 1).height == 0
 
 
+def test_broker_tenure_is_right_skewed(insurance_full: dict[str, pl.DataFrame]) -> None:
+    # Broker tenure is geometrically right-skewed over [1, 30] (ratio 0.90), not
+    # uniform: newer producers (≤5yr) outnumber veterans (≥20yr). Full scale (40
+    # brokers) so the 40-row dim is stable against seed noise.
+    brokers = insurance_full["brokers"]
+    recent = brokers.filter(pl.col("tenure_years") <= 5).height
+    veteran = brokers.filter(pl.col("tenure_years") >= 20).height
+    assert recent > veteran
+
+
 def test_policyholder_tenure_is_right_skewed(insurance: dict[str, pl.DataFrame]) -> None:
     # Tenure is geometrically right-skewed, not uniform (uniform[0,15] would split evenly):
     # recent customers (≤3yr) far outnumber long-tenured ones (≥12yr).
@@ -259,6 +314,11 @@ def test_policyholder_tenure_is_right_skewed(insurance: dict[str, pl.DataFrame])
     recent = ph.filter(pl.col("tenure_years") <= 3).height
     long_tenured = ph.filter(pl.col("tenure_years") >= 12).height
     assert recent > 3 * long_tenured
+
+
+def test_prior_claims_count_is_non_negative(insurance: dict[str, pl.DataFrame]) -> None:
+    # A pre-window Poisson history count (single tier-independent λ), so always ≥ 0.
+    assert insurance["policyholders"].filter(pl.col("prior_claims_count") < 0).height == 0
 
 
 def test_broker_commission_rate_in_band(insurance: dict[str, pl.DataFrame]) -> None:
@@ -273,6 +333,12 @@ def test_bundled_iff_holder_has_multiple_policies(insurance: dict[str, pl.DataFr
         (pl.col("policy_id").count().over("policyholder_id") >= 2).alias("expected")
     )
     assert expected.filter(pl.col("bundled") != pl.col("expected")).height == 0
+
+
+def test_renewal_count_is_non_negative(insurance: dict[str, pl.DataFrame]) -> None:
+    # An abstract lifecycle marker (mode 0 = new business), right-skewed via
+    # geometric(p) - 1, so it is always ≥ 0.
+    assert insurance["policies"].filter(pl.col("renewal_count") < 0).height == 0
 
 
 # -- premium_billing (instalment schedule) ----------------------------------------
@@ -331,3 +397,33 @@ def test_installment_due_date_on_or_after_policy_start(insurance: dict[str, pl.D
 def test_installment_paid_date_on_or_after_due_date(insurance: dict[str, pl.DataFrame]) -> None:
     paid = insurance["premium_billing"].filter(pl.col("paid_date").is_not_null())
     assert paid.filter(pl.col("paid_date") < pl.col("due_date")).height == 0
+
+
+# -- claim_status_history (lifecycle transitions) ---------------------------------
+
+
+def test_status_history_terminal_matches_claim_status(insurance: dict[str, pl.DataFrame]) -> None:
+    # The lifecycle walk (reported -> under_review -> terminal) must reconcile with
+    # `claims`: the terminal transition (seq == 3) records the claim's own status.
+    terminal = (
+        insurance["claim_status_history"]
+        .filter(pl.col("seq") == 3)
+        .join(insurance["claims"].select("claim_id", "status"), on="claim_id")
+    )
+    assert terminal.filter(pl.col("to_status") != pl.col("status")).height == 0
+
+
+# -- coverage_lines (per-policy coverage breakdown) -------------------------------
+
+
+def test_coverage_line_shares_sum_to_annual_premium(insurance: dict[str, pl.DataFrame]) -> None:
+    # The premium-side identity: each policy's `line_premium_share` values sum back to
+    # its `annual_premium` to the cent (the last line absorbs the rounding remainder).
+    summed = (
+        insurance["coverage_lines"]
+        .group_by("policy_id")
+        .agg(pl.col("line_premium_share").sum().alias("shared"))
+        .join(insurance["policies"].select("policy_id", "annual_premium"), on="policy_id")
+        .with_columns((pl.col("shared") - pl.col("annual_premium")).abs().alias("diff"))
+    )
+    assert summed.filter(pl.col("diff") > 0.01).height == 0

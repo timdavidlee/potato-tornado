@@ -123,7 +123,13 @@ def build_scan_events(ctx: GenContext) -> pl.DataFrame:
     is_ontime = ctx.rng.child("ontime").numpy.random(n) < p_ontime
     early_days = ctx.rng.child("early").numpy.poisson(0.5, n)
     late_days = np.clip(1 + ctx.rng.child("late").numpy.poisson(1.6, n), 1, 7)
-    hub_city = ctx.entities.cities(n)
+    # One hub city per in_transit hop (not one per shipment): a multi-hop parcel
+    # passes through a distinct hub on each line-haul/destination scan. Draw the
+    # whole run up front from the single entities stream and hand them out in scan
+    # order via `cursor` below — still the only ctx.entities call, so no other
+    # entity draw shifts.
+    hops_per_ship = [1 + _extra_hops(int(z)) for z in zone]
+    hub_cities = ctx.entities.cities(sum(hops_per_ship))
     ts_rng = ctx.rng.child("scan_ts").numpy
     # Per-shipment terminal time-of-day (seconds past midnight) in the delivery window.
     lo, hi = _DELIVERY_WINDOW_HOURS
@@ -137,6 +143,7 @@ def build_scan_events(ctx: GenContext) -> pl.DataFrame:
     out_city: list[str] = []
     out_facility: list[str] = []
     scan_no = 0
+    cursor = 0  # position in hub_cities: one hub consumed per in_transit hop
     for i in range(n):
         scans = _journey(str(status[i]), int(zone[i]))
         facilities = _facility_types(scans)
@@ -157,7 +164,8 @@ def build_scan_events(ctx: GenContext) -> pl.DataFrame:
             if scan_type == SCAN_PICKED_UP:
                 loc = city_of_wh[warehouse[i]]
             elif scan_type == SCAN_IN_TRANSIT:
-                loc = hub_city[i]
+                loc = hub_cities[cursor]
+                cursor += 1
             else:
                 loc = dest_city[i]
             scan_no += 1

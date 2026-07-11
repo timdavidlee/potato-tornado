@@ -158,9 +158,10 @@ def test_forecast_actuals_reconcile_with_stay_occupancy(hotel: dict) -> None:
 
 
 def test_forecast_tracks_actual_within_about_ten_percent(hotel_full: dict) -> None:
-    # Forecast = actual x Normal(1, 0.12), so the mean absolute relative error is
-    # ~0.10 (= 0.12 sd x sqrt(2/pi)). Measured at full scale, where occupancy is in
-    # double digits; at low occupancy integer rounding collapses the error toward 0.
+    # Forecast = actual x Normal(1, sd) with sd 0.09 on weekdays / 0.22 on weekends, so
+    # each day-kind's mean absolute relative error is sd x sqrt(2/pi) and the blend lands
+    # ~0.10. Measured at full scale, where occupancy is in double digits; at low occupancy
+    # integer rounding collapses the error toward 0.
     df = hotel_full["demand_forecast"].filter(pl.col("actual_occupied_rooms") > 0)
     mape = (
         (df["forecast_occupied_rooms"] - df["actual_occupied_rooms"]).abs()
@@ -217,6 +218,18 @@ def test_room_revenue_equals_rate_times_actual_nights(hotel: dict) -> None:
         (pl.col("nightly_rate") * pl.col("actual_nights")).round(2) != pl.col("room_revenue")
     )
     assert mismatched.height == 0
+
+
+def test_nightly_rate_varies_across_the_calendar(hotel: dict) -> None:
+    # The billed nightly_rate is no longer a flat lattice: a summer season lift + weekend
+    # arrival bump ride on the rack rate, so within a single (property, room_type) the rate
+    # takes many values across the calendar. A flat-rate generator would tie them at one.
+    distinct = (
+        hotel["stays"]
+        .group_by("property_id", "room_type")
+        .agg(pl.col("nightly_rate").n_unique().alias("distinct_rates"))
+    )
+    assert distinct["distinct_rates"].max() > 1
 
 
 def test_check_out_equals_check_in_plus_nights(hotel: dict) -> None:

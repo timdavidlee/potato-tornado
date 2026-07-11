@@ -100,6 +100,50 @@ def test_weight_kg_within_bounds(retail: dict[str, pl.DataFrame]) -> None:
     assert products.filter((pl.col("weight_kg") < 0.05) | (pl.col("weight_kg") > 30)).height == 0
 
 
+def test_discount_pct_within_bounds(retail: dict[str, pl.DataFrame]) -> None:
+    # Per-line markdown is 0 for most lines, else a tier in {0.10..0.40}; it never
+    # escapes [0, 0.6]. `line_total` stays gross (net = line_total * (1 - discount_pct)).
+    items = retail["order_items"]
+    assert items.filter((pl.col("discount_pct") < 0) | (pl.col("discount_pct") > 0.6)).height == 0
+
+
+def test_cost_below_unit_price_and_positive(retail: dict[str, pl.DataFrame]) -> None:
+    # `cost = round(unit_price * (1 - margin), 2)` with a flat margin clamped into
+    # (0, 1), so every SKU satisfies 0 < cost < unit_price (a real gross margin).
+    products = retail["products"]
+    assert (
+        products.filter((pl.col("cost") <= 0) | (pl.col("cost") >= pl.col("unit_price"))).height
+        == 0
+    )
+
+
+def test_discount_amount_positive_iff_promo_code(retail: dict[str, pl.DataFrame]) -> None:
+    # A promo order has a code and a positive fixed discount; a non-promo order has a
+    # null code and 0.0 discount. So discount_amount > 0 iff promo_code is not null, and
+    # discount_amount is never negative.
+    orders = retail["orders"]
+    mismatch = (pl.col("discount_amount") > 0) != pl.col("promo_code").is_not_null()
+    negative = pl.col("discount_amount") < 0
+    assert orders.filter(mismatch | negative).height == 0
+
+
+def test_free_shipping_at_or_above_threshold(retail: dict[str, pl.DataFrame]) -> None:
+    # shipping_fee is free once merchandise reaches the free-ship threshold; below it a
+    # tiered fee applies. So no order at/above the threshold ever carries a positive fee.
+    from potato_tornado.collections.retail.tables.order_charges import _FREE_SHIP_THRESHOLD
+
+    merch = (
+        retail["order_items"]
+        .group_by("order_id")
+        .agg(pl.col("line_total").sum().round(2).alias("merchandise"))
+    )
+    charged = retail["order_charges"].join(merch, on="order_id", how="left")
+    above = charged.filter(
+        (pl.col("merchandise") >= _FREE_SHIP_THRESHOLD) & (pl.col("shipping_fee") > 0)
+    )
+    assert above.height == 0
+
+
 @pytest.mark.parametrize(
     ("table", "column", "allowed"),
     [

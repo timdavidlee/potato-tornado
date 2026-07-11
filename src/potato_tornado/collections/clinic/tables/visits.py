@@ -15,9 +15,17 @@ import polars as pl
 
 from potato_tornado.collections.clinic.constants import VISIT_TYPES
 from potato_tornado.core.collection import GenContext
+from potato_tornado.core.distributions import Distributions
 
 _SCHEDULED_MIN = {v[0]: v[2] for v in VISIT_TYPES}
 _OVERRUN_BIAS = {v[0]: v[4] for v in VISIT_TYPES}
+
+# Coarse clinical category for the encounter. Drawn flat and INDEPENDENT of
+# visit_type (and therefore of the duration-overrun bias) on its own child stream:
+# coupling it to visit_type would leak the "procedures run long" overrun into the
+# category, and that concentration is a scenario signal, not a realism fact.
+_DIAGNOSIS_CATEGORIES = ["preventive", "acute", "chronic_followup", "procedure"]
+_DIAGNOSIS_WEIGHTS = [0.25, 0.40, 0.25, 0.10]
 
 # Arrival delay vs. time of day. The clinic runs behind as the session wears on:
 # an appointment's mean minutes-late grows linearly with its scheduled hour. The
@@ -48,6 +56,9 @@ def build_visits(ctx: GenContext) -> pl.DataFrame:
     arrival_delay_min = (
         np.clip(ctx.dist.normal(n, mean=0.0, sd=5.0) + delay_mean, -15, 45).round().astype(int)
     )
+    diagnosis_category = Distributions(ctx.rng.child("diagnosis_category")).choice(
+        n, _DIAGNOSIS_CATEGORIES, _DIAGNOSIS_WEIGHTS
+    )
 
     return pl.DataFrame(
         {
@@ -59,5 +70,6 @@ def build_visits(ctx: GenContext) -> pl.DataFrame:
             "scheduled_minutes": scheduled_minutes,
             "actual_minutes": actual_minutes,
             "arrival_delay_min": arrival_delay_min,
+            "diagnosis_category": diagnosis_category,
         }
     )

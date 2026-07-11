@@ -21,6 +21,7 @@ from potato_tornado.collections.clinic.constants import (
     VISIT_TYPES,
 )
 from potato_tornado.core.collection import GenContext
+from potato_tornado.core.distributions import Distributions
 
 _BASE_CHARGE = {v[0]: v[3] for v in VISIT_TYPES}
 _PAYER_NAMES = [p[0] for p in PAYERS]
@@ -46,6 +47,19 @@ def build_invoices(ctx: GenContext) -> pl.DataFrame:
     balance = np.round(charge - amount_paid, 2)
     status = np.where(balance <= 0.0, "paid", "outstanding")
 
+    # Days from service to full payment. Synthetic AR-aging draw: there is no payment
+    # date in the model to subtract, so this is a plausible days-outstanding value, not
+    # a real date difference. Populated only on paid invoices; null while a balance is
+    # still outstanding. Own child stream, independent of payer.
+    days_raw = ctx.rng.child("days_to_pay").numpy.integers(3, 91, size=n)
+    is_paid = status == "paid"
+    days_to_pay = np.array(
+        [int(d) if paid else None for d, paid in zip(days_raw, is_paid, strict=True)],
+        dtype=object,
+    )
+
+    adjustment_amount, denied_amount, claim_status = _adjudication_split(ctx, charge)
+
     return pl.DataFrame(
         {
             "invoice_id": [f"INV-{i:07d}" for i in range(1, n + 1)],
@@ -56,5 +70,43 @@ def build_invoices(ctx: GenContext) -> pl.DataFrame:
             "amount_paid": amount_paid,
             "balance": balance,
             "status": status,
+            "days_to_pay": days_to_pay,
+            "adjustment_amount": adjustment_amount,
+            "denied_amount": denied_amount,
+            "claim_status": claim_status,
         }
     )
+
+
+def _adjudication_split(
+    ctx: GenContext, charge: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Make the payer-adjudication funnel visible: charge → allowed → paid → patient balance.
+
+    A contractual ``adjustment_amount`` (write-down) and an occasional ``denied_amount`` are
+    carved off the ``charge`` so ``allowed = charge - adjustment_amount - denied_amount`` is
+    recoverable. Both are FLAT, payer-independent draws on their own child streams (the
+    fraction caps guarantee ``adjustment_amount + denied_amount ≤ charge``, so allowed ≥ 0);
+    the *payer-varying* denial rate is a deferred scenario, not planted here. ``claim_status``
+    is derived: ``denied`` if any amount was denied, else ``adjusted`` if written down, else
+    ``clean``.
+    """
+    n = charge.shape[0]
+    has_adjustment = Distributions(ctx.rng.child("has_adjustment")).bernoulli(n, p=0.85)
+    adj_frac = Distributions(ctx.rng.child("adjustment_frac")).clamped_normal(
+        n, mean=0.14, sd=0.05, low=0.02, high=0.35
+    )
+    adjustment_amount = np.where(has_adjustment, np.round(charge * adj_frac, 2), 0.0)
+
+    is_denied = Distributions(ctx.rng.child("denied")).bernoulli(n, p=0.08)
+    denied_frac = Distributions(ctx.rng.child("denied_frac")).clamped_normal(
+        n, mean=0.25, sd=0.10, low=0.05, high=0.60
+    )
+    denied_amount = np.where(is_denied, np.round(charge * denied_frac, 2), 0.0)
+
+    claim_status = np.select(
+        [denied_amount > 0.0, adjustment_amount > 0.0],
+        ["denied", "adjusted"],
+        default="clean",
+    )
+    return adjustment_amount, denied_amount, claim_status

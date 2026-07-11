@@ -117,9 +117,12 @@ update the matching line below in the same change.
 
 - **One `deliveries` row per shipment** — no split shipments or multi-parcel orders.
 - **Scan `location_city` is a coarse city label** (from `ctx.entities.cities`), not a
-  facility code or lat/long; the intermediate `in_transit` hub city is synthetic and drawn
-  once per shipment (so a multi-hop parcel repeats the same hub city on each `in_transit`
-  scan), unrelated to real geography between origin and destination.
+  facility code or lat/long. Each `in_transit` hop now draws its **own** hub city, so a
+  multi-hop parcel passes through a distinct hub label on each line-haul/destination scan
+  (no single repeated hub). The labels are still synthetic faker cities, **not**
+  geographically grounded — they aren't ordered along a route or made to sit "between"
+  origin and destination — so route-mapping the hubs remains meaningless; that geographic
+  grounding is deliberately out of scope.
 - **`dest_zone` is a per-shipment distance proxy**, drawn directly — not computed from the
   warehouse's and destination's cities. `dest_city` and `warehouses.city` are independent
   labels; zone is the only distance signal.

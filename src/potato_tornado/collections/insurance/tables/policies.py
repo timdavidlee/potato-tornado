@@ -36,6 +36,13 @@ _CHANNELS = ["broker", "direct", "aggregator"]
 _CHANNEL_WEIGHTS = [0.50, 0.30, 0.20]
 _AUTO_RENEW_P = 0.70
 
+# How many prior terms this policy has run — an **abstract** lifecycle marker, mode 0
+# (new business), right-skewed via `geometric(p) - 1`. Deliberately **decoupled** from
+# `start_date`: the cold-start book has no backdated terms, so this is a book-mix
+# dimension (new-vs-renewal split) rather than a real prior-term history — see the
+# cold-start note in realism-guidance.md. Own child stream, single-table literal.
+_RENEWAL_P = 0.45
+
 # Small underwriting nudges: premium rises with the chosen coverage step and falls as
 # the deductible rises (the insured retains more risk). Both are centred on their
 # weighted mean so the per-tier premium medians are unchanged — the effect is a weak
@@ -89,6 +96,10 @@ def build_policies(ctx: GenContext) -> pl.DataFrame:
 
     coverage_limit = np.array([coverage_base_of[p] for p in product]) * coverage_step
 
+    # Abstract renewal marker, decoupled from start_date (see _RENEWAL_P). Own child
+    # stream so premium/date/status draws stay byte-identical.
+    renewal_count = ctx.rng.child("renewal_count").numpy.geometric(_RENEWAL_P, size=n) - 1
+
     # Bundled: derivable, no draw — true when the holder appears on ≥2 policies rows
     # (holders average ~1.75 policies, so the multi-policy structure already exists).
     _uniq, inverse, holder_counts = np.unique(
@@ -120,5 +131,6 @@ def build_policies(ctx: GenContext) -> pl.DataFrame:
             "status": ctx.dist.choice(n, _STATUSES, _STATUS_WEIGHTS),
             "bundled": bundled,
             "auto_renew": ctx.rng.child("auto_renew").numpy.random(size=n) < _AUTO_RENEW_P,
+            "renewal_count": renewal_count,
         }
     )

@@ -85,6 +85,85 @@ def test_lead_days_within_bounds(clinic: dict[str, pl.DataFrame]) -> None:
     assert appts.filter((pl.col("lead_days") < 0) | (pl.col("lead_days") > 120)).height == 0
 
 
+# -- Enrichment column invariants ------------------------------------------
+
+
+def test_years_experience_within_bounds(clinic: dict[str, pl.DataFrame]) -> None:
+    exp = clinic["providers"]["years_experience"]
+    assert cast(int, exp.min()) >= 1 and cast(int, exp.max()) <= 35
+
+
+def test_panel_size_positive(clinic: dict[str, pl.DataFrame]) -> None:
+    assert cast(int, clinic["providers"]["panel_size"].min()) > 0
+
+
+def test_age_band_in_allowed_set(clinic: dict[str, pl.DataFrame]) -> None:
+    assert set(clinic["patients"]["age_band"].unique().to_list()) <= {
+        "peds",
+        "18-40",
+        "41-65",
+        "65+",
+    }
+
+
+def test_insurance_type_in_allowed_set(clinic: dict[str, pl.DataFrame]) -> None:
+    assert set(clinic["patients"]["insurance_type"].unique().to_list()) <= {
+        "commercial",
+        "medicare",
+        "medicaid",
+        "self_pay",
+    }
+
+
+def test_risk_score_within_unit_interval(clinic: dict[str, pl.DataFrame]) -> None:
+    rs = clinic["patients"]["risk_score"]
+    assert cast(float, rs.min()) >= 0.0 and cast(float, rs.max()) <= 1.0
+
+
+def test_telehealth_flag_rate_in_band(clinic: dict[str, pl.DataFrame]) -> None:
+    assert 0.10 < cast(float, clinic["slots"]["telehealth_flag"].mean()) < 0.30
+
+
+def test_booking_channel_in_allowed_set(clinic: dict[str, pl.DataFrame]) -> None:
+    assert set(clinic["appointments"]["booking_channel"].unique().to_list()) <= {
+        "phone",
+        "portal",
+        "walk_in",
+        "referral",
+    }
+
+
+def test_reminder_channel_null_iff_not_sent(clinic: dict[str, pl.DataFrame]) -> None:
+    appts = clinic["appointments"]
+    mismatched = appts.filter(pl.col("reminder_sent") != pl.col("reminder_channel").is_not_null())
+    assert mismatched.height == 0
+
+
+def test_diagnosis_category_in_allowed_set(clinic: dict[str, pl.DataFrame]) -> None:
+    assert set(clinic["visits"]["diagnosis_category"].unique().to_list()) <= {
+        "preventive",
+        "acute",
+        "chronic_followup",
+        "procedure",
+    }
+
+
+def test_days_to_pay_populated_iff_paid(clinic: dict[str, pl.DataFrame]) -> None:
+    inv = clinic["invoices"]
+    mismatched = inv.filter((pl.col("status") == "paid") != pl.col("days_to_pay").is_not_null())
+    assert mismatched.height == 0
+
+
+def test_adjudication_amounts_non_negative_and_bounded(clinic: dict[str, pl.DataFrame]) -> None:
+    inv = clinic["invoices"]
+    bad = inv.filter(
+        (pl.col("adjustment_amount") < 0)
+        | (pl.col("denied_amount") < 0)
+        | (pl.col("adjustment_amount") + pl.col("denied_amount") > pl.col("charge"))
+    )
+    assert bad.height == 0
+
+
 # -- Planted signals -------------------------------------------------------
 
 

@@ -2,7 +2,9 @@
 
 Each subscriber holds exactly one subscription that starts at signup, sits on a
 plan tier, is billed monthly or annually, and is either still ``active`` or has
-``cancelled`` after a right-skewed tenure. Churn is not flat: the subscriber's
+``cancelled`` after a right-skewed tenure — with cancellations right-censored at
+the snapshot, so a churn dated on/after the window end reads ``active`` with a
+null ``end_date`` (its churn is in the unobservable future). Churn is not flat: the subscriber's
 acquisition channel and billing cadence both shift how likely they are to cancel
 and how long they last — paid-acquired and monthly subscribers churn faster,
 organic and annual ones stick. When a subscriber cancels, the stated reason skews
@@ -19,6 +21,7 @@ import numpy as np
 import polars as pl
 
 from potato_tornado.collections.streaming.constants import (
+    ANNUAL_MRR_FACTOR,
     BILLING_CYCLE_WEIGHTS,
     BILLING_CYCLES,
     PLANS,
@@ -34,8 +37,9 @@ _UPMARKET_REGION = "US"
 
 # Churn model. Per-subscriber cancel probability is a base rate scaled by the
 # acquisition channel and the billing cadence; tenure (months) is scaled the same
-# way in the opposite direction. Multipliers are centred so the overall cancelled
-# share stays ~0.22. See scenarios/paid-channels-churn-faster.md and
+# way in the opposite direction. Multipliers are centred so the raw churn share is
+# ~0.21; after right-censoring at the window end (below) the observed cancelled
+# share is ~0.185. See scenarios/paid-channels-churn-faster.md and
 # scenarios/annual-plans-retain-better.md.
 _BASE_CANCEL_RATE = 0.20
 _CHANNEL_CANCEL_MULT = {
@@ -96,12 +100,35 @@ def build_subscriptions(ctx: GenContext) -> pl.DataFrame:
     )
     tenure = np.clip(ctx.rng.child("tenure").numpy.poisson(lam) + 1, 1, 24)
 
-    status = np.where(is_cancelled, "cancelled", "active")
-    end_date: list[date | None] = [
-        start + timedelta(days=int(months) * 30) if cancelled else None
-        for start, months, cancelled in zip(signup, tenure, is_cancelled, strict=True)
+    # Right-censor the lifecycle at the snapshot. Each subscription's churn date is
+    # derived from its (already-drawn) tenure, but a churn is only *observed* if it
+    # lands before the window end: a cancellation whose churn date falls on/after
+    # `ctx.config.end_date` is unobservable at the snapshot, so the row reads 'active'
+    # with a null end_date (right-censored). This is a pure re-derivation off the
+    # existing is_cancelled / tenure draws — no new RNG, no reordering — so mrr and
+    # every other column stay byte-identical; only the censored rows flip. The same
+    # `observed_cancel` mask feeds cancel_reason, so a censored row's reason is nulled
+    # too (and _sample_cancel_reasons still draws a full-length u, keeping the stream
+    # identical). Mirrors how labor/tables/projects.py reads ctx.config.end_date.
+    churn_date = [
+        start + timedelta(days=int(months) * 30)
+        for start, months in zip(signup, tenure, strict=True)
     ]
-    cancel_reason = _sample_cancel_reasons(ctx, is_cancelled, region, plan)
+    observed_cancel = is_cancelled & np.array([churn < ctx.config.end_date for churn in churn_date])
+    status = np.where(observed_cancel, "cancelled", "active")
+    end_date: list[date | None] = [
+        churn if observed else None
+        for churn, observed in zip(churn_date, observed_cancel, strict=True)
+    ]
+    cancel_reason = _sample_cancel_reasons(ctx, observed_cancel, region, plan)
+
+    # Monthly recurring revenue: pure derivation off the plan price and cadence (no
+    # RNG). Monthly subscriptions book the list price; annual ones book the "2 months
+    # free" monthly-equivalent (annual_price / 12 = monthly_price * 10 / 12).
+    price_by_plan = {name: price for name, price, *_ in PLANS}
+    base = np.array([price_by_plan[p] for p in plan], dtype=float)
+    factor = np.where(billing_cycle == "annual", ANNUAL_MRR_FACTOR, 1.0)
+    mrr = np.round(base * factor, 2)
 
     return pl.DataFrame(
         {
@@ -113,26 +140,31 @@ def build_subscriptions(ctx: GenContext) -> pl.DataFrame:
             "end_date": end_date,
             "status": status,
             "cancel_reason": cancel_reason,
+            "mrr": mrr,
         }
     )
 
 
 def _sample_cancel_reasons(
     ctx: GenContext,
-    is_cancelled: np.ndarray,
+    cancelled_mask: np.ndarray,
     region: list[str],
     plan: np.ndarray,
 ) -> list[str | None]:
-    """Per-row stated cancel reason; ``None`` for active subscriptions.
+    """Per-row stated cancel reason; ``None`` where ``cancelled_mask`` is false.
 
-    The base reason mix is reweighted per cancelled row — ``content`` is boosted in
-    narrow-catalogue regions and ``price`` on the Basic tier — then a reason is
-    drawn by inverse-CDF against a per-row uniform.
+    ``cancelled_mask`` is the *observed* cancellation mask (right-censored), so a
+    subscription whose churn falls past the window reads active here and gets no
+    reason. The base reason mix is reweighted per cancelled row — ``content`` is
+    boosted in narrow-catalogue regions and ``price`` on the Basic tier — then a
+    reason is drawn by inverse-CDF against a per-row uniform. ``u`` is drawn at full
+    length before the branch, so passing the observed (vs. raw) mask consumes the
+    identical RNG stream and only nulls the censored rows' reason.
     """
-    u = ctx.rng.child("cancel_reason").numpy.random(len(is_cancelled))
+    u = ctx.rng.child("cancel_reason").numpy.random(len(cancelled_mask))
     base = np.array(_BASE_REASON_WEIGHTS)
     reasons: list[str | None] = []
-    for i, cancelled in enumerate(is_cancelled):
+    for i, cancelled in enumerate(cancelled_mask):
         if not cancelled:
             reasons.append(None)
             continue

@@ -8,9 +8,10 @@ invariants + distributions, sweep for too-synthetic artifacts, fix generators, r
 reconcile the rubric + tests); a **field-enrichment run** is one
 `/data-collection:suggest-analytic-fields` pass. Open items live in `TODO.md`, not here.
 
-**Status: Converged** — invariants and the headline distributions have been swept and one
-lattice artifact fixed; residual items are documented deliberate simplifications (open items in
-`TODO.md`). (as of 2026-07-02)
+**Status: Converged** — invariants and the headline distributions have been swept, two
+too-synthetic artifacts fixed (the terminal-time lattice and the once-per-shipment hub city),
+and the remaining open realism items confirmed as documented deliberate simplifications; residual
+items are those simplifications (open items in `TODO.md`). (as of 2026-07-11)
 
 ## Realism iterations
 
@@ -24,6 +25,25 @@ lattice artifact fixed; residual items are documented deliberate simplifications
   time-of-day lattice. Now each shipment's terminal scan draws a time uniformly across
   **[12:00, 20:00)** on the terminal calendar day, so `actual_delivery_date` is unchanged but
   the hour spreads. Guarded by the scan-timestamp note in the rubric. (`e27dc41`)
+- **2026-07-11 — Too-synthetic sweep: per-hop hub city + confirm the remaining open items.**
+  Fixed the last named too-synthetic artifact: the intermediate `in_transit` hub city was drawn
+  **once per shipment** (`ctx.entities.cities(n)`), so every multi-hop parcel repeated a single
+  hub label on each line-haul scan (measured 100% single-hub on multi-hop shipments). Now
+  `tables/scan_events.py` draws one hub per hop — `hub_cities = ctx.entities.cities(sum(1 +
+  _extra_hops(zone)))`, handed out in scan order via a `cursor` — dropping single-hub multi-hop
+  parcels to ~0% (0.03% at scale=1.0, the rare faker city collision). Kept as the **only**
+  `ctx.entities` call and touched no numpy child stream, so `scan_ts` / `scan_type` /
+  `facility_type` and all of `deliveries` are byte-for-byte unchanged (verified at seed=7);
+  `location_city` dtype stays `Utf8`. Labels remain coarse faker cities — not route-ordered or
+  geographically between origin and destination; that grounding is out of scope. Reconciled the
+  `location_city` simplification in `realism-guidance.md` and added the invariant test
+  `test_multi_hop_shipments_vary_their_hub_city`. Also confirmed the other three open realism
+  items as intentional/healthy (no code change): `dest_zone`⊥`dest_city` (6396 distinct cities /
+  8000 shipments, 99% of recurring cities span >1 zone — independent labels), memoryless outcomes
+  (lag-1 on-time autocorr ≈ -0.016), and the cost tail (only 2 shipments > \$80, max \$84.27,
+  none at the 50 kg clamp — weight×zone×multiplier driven). The three scenario-bearing columns
+  (`insured_value`, `exception_reason`, `delivery_cost`) stay deferred to
+  `/scenario:draft-or-propose`.
 
 ## Field-enrichment runs
 
