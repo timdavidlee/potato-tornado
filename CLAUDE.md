@@ -88,5 +88,9 @@ for determinism / non-empty checks.
 ## Checks (run before finishing)
 
 ```bash
-uv run ruff format && uv run ruff check && uv run pyright && uv run pytest
+uv run ruff format && uv run ruff check && uv run pyright && uv run pytest -n auto --dist loadscope
 ```
+
+(`-n auto --dist loadscope` runs the suite in parallel via `pytest-xdist`, ~2.5× faster;
+`loadscope` keeps each module on one worker so the collection-generation fixtures aren't
+regenerated per worker. Drop the `-n`/`--dist` flags for single-test debug runs.)
