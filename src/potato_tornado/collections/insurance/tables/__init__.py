@@ -7,6 +7,7 @@ collection's ``__init__`` can import them from one place.
 
 from __future__ import annotations
 
+from potato_tornado.collections.insurance.tables.adjuster_notes import build_adjuster_notes
 from potato_tornado.collections.insurance.tables.adjusters import build_adjusters
 from potato_tornado.collections.insurance.tables.brokers import build_brokers
 from potato_tornado.collections.insurance.tables.claim_payments import build_claim_payments
@@ -21,6 +22,7 @@ from potato_tornado.collections.insurance.tables.premium_billing import build_pr
 from potato_tornado.collections.insurance.tables.quotes import build_quotes
 
 __all__ = [
+    "build_adjuster_notes",
     "build_adjusters",
     "build_brokers",
     "build_claim_payments",

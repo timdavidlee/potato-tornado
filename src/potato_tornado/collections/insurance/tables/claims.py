@@ -16,11 +16,21 @@ import numpy as np
 import polars as pl
 
 from potato_tornado.collections.insurance.constants import PERILS, RISK_TIERS
+from potato_tornado.collections.insurance.water_cause import WATER_PERIL, water_cause_labels
 from potato_tornado.core.collection import GenContext
 
 # Adjudication mix and severity shape (single-table literals).
 _STATUSES = ["approved", "partial", "denied", "open"]
 _STATUS_WEIGHTS = [0.62, 0.16, 0.14, 0.08]
+
+# Water-damage adjudication tilts on the note-native sudden/gradual cause (see
+# `water_cause.py` and `scenarios/gradual-water-losses-settle-below-sudden.md`). A `sudden`
+# accidental discharge is a covered cause and adjudicates at the book mix; a `gradual`
+# wear/seepage loss is largely excluded, so it denies/partials far more and settles at
+# roughly half the paid-to-reported ratio. Every other peril keeps the flat book mix.
+# Weights are over `_STATUSES`.
+_SUDDEN_STATUS_WEIGHTS = _STATUS_WEIGHTS
+_GRADUAL_STATUS_WEIGHTS = [0.22, 0.25, 0.45, 0.08]
 _SEVERITY_MEDIAN = 6000.0
 _SEVERITY_SIGMA = 1.0
 _DAYS_PER_MONTH = 30.4
@@ -72,6 +82,21 @@ _LITIGATION_P = 0.10
 # amount, so the realized paid ratio lands below the reported multiplier. See
 # `scenarios/litigation-tax.md`.
 _LITIGATION_SEVERITY_MULT = 2.2
+
+
+def _tilted_status(draw: float, cause: str) -> str:
+    """Map a uniform ``draw`` to a status under the cause's adjudication mix.
+
+    ``cause`` is ``"gradual"`` (the harder, mostly-excluded mix) or ``"sudden"`` (the book
+    mix); the uniform is walked against the cumulative weights over ``_STATUSES``.
+    """
+    weights = _GRADUAL_STATUS_WEIGHTS if cause == "gradual" else _SUDDEN_STATUS_WEIGHTS
+    cumulative = 0.0
+    for status, weight in zip(_STATUSES, weights, strict=True):
+        cumulative += weight
+        if draw < cumulative:
+            return status
+    return _STATUSES[-1]
 
 
 def build_claims(ctx: GenContext) -> pl.DataFrame:
@@ -158,14 +183,28 @@ def build_claims(ctx: GenContext) -> pl.DataFrame:
         np.where(litigated, reported_amount * _LITIGATION_SEVERITY_MULT, reported_amount), 2
     )
 
+    # Adjudication status: the flat book mix for every claim, then water-damage claims are
+    # overridden by their note-native sudden/gradual cause — sudden keeps the book mix,
+    # gradual denies/partials far more (see `scenarios/gradual-water-losses-settle-below-
+    # sudden.md`). The base draw is unchanged and the tilt rides its own child stream, so
+    # every other stream stays byte-identical; the label never becomes a `claims` column.
+    claim_ids = [f"CLM-{i:07d}" for i in range(1, total + 1)]
+    status = ctx.dist.choice(total, _STATUSES, _STATUS_WEIGHTS)
+    water_cause = water_cause_labels(ctx.config.seed, claim_ids, (peril == WATER_PERIL).tolist())
+    tilt_draw = ctx.rng.child("water_adjudication").numpy.random(total)
+    status = [
+        _tilted_status(float(tilt_draw[i]), cause) if (cause := water_cause[i]) else str(status[i])
+        for i in range(total)
+    ]
+
     return pl.DataFrame(
         {
-            "claim_id": [f"CLM-{i:07d}" for i in range(1, total + 1)],
+            "claim_id": claim_ids,
             "policy_id": [policy_ids[p] for p in policy_idx],
             "claim_date": claim_date,
             "peril": peril,
             "reported_amount": reported_amount,
-            "status": ctx.dist.choice(total, _STATUSES, _STATUS_WEIGHTS),
+            "status": status,
             "adjuster_id": [adjuster_ids[i] for i in adjuster_idx],
             "reported_channel": ctx.rng.child("reported_channel").numpy.choice(
                 np.asarray(_REPORTED_CHANNELS, dtype=object),

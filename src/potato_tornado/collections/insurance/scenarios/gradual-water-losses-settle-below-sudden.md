@@ -9,46 +9,53 @@
   loss description**, so a plain `GROUP BY peril` cannot see it — you have to read the
   note.
 - **Documents:** `adjuster_notes.body` — a free-form adjuster **loss-description note**,
-  one per claim (`ctx.n(...)` ≈ claim count: ~295 at `scale=0.5`, ~586 at `scale=1.0`;
-  ~22% are `water_damage`). The note narrates the loss cause and renders the reported
-  loss estimate in prose.
-- **Parse target:** for each note, (a) the loss estimate dollar figure and (b) — for
-  water losses — a **sudden vs gradual** classification from the wording. Keyword cues:
-  *gradual* → "seepage", "long-term", "gradual", "wear", "deterioration", "over time",
-  "maintenance"; *sudden* → "burst", "sudden", "accidental discharge", "ruptured",
-  "sprang a leak". Example (gradual):
+  one per claim (= the claim count: 295 at `scale=0.5`, 586 at `scale=1.0`; ~22% are
+  `water_damage`). The note narrates the loss cause and renders the reported loss estimate
+  in prose. Three name-keyed template variants vary the phrasing.
+- **Parse target:** for each note, (a) the loss estimate dollar figure (the first `$`
+  figure) and (b) — for water losses — a **sudden vs gradual** classification from the
+  wording. Keyword cues: *gradual* → "seepage", "long-term", "gradual", "wear",
+  "deterioration", "over time", "maintenance"; *sudden* → "burst", "sudden", "accidental
+  discharge", "ruptured", "sprang a leak" (a note carries cues from **one** side only).
+  Example (gradual):
 
-  > Inspected POL-0001234 on 2023-06-14. Damage traced to **long-term seepage** behind
-  > the shower wall — consistent with **gradual** deterioration, not a single event.
-  > Initial loss estimate **$7,900**. Coverage position under review given the
-  > wear-and-tear exclusion.
+  > Inspected POL-0001234 on 2023-06-14. Damage traced to **long-term seepage** behind the
+  > wall — consistent with **gradual** deterioration rather than a single event. Initial
+  > loss estimate **$7,912**. Coverage position under review given the wear-and-tear
+  > exclusion.
 
   Example (sudden):
 
-  > FNOL for POL-0004567: a supply line under the kitchen sink **burst** on 2023-06-14,
-  > **sudden discharge** flooding the cabinets. Initial loss estimate **$6,300**. Clear
-  > accidental-discharge trigger.
+  > FNOL for POL-0004567: a supply line **burst** on 2023-06-14, a **sudden accidental
+  > discharge** that flooded the area. Initial loss estimate **$6,284**. Clear
+  > accidental-discharge trigger, a covered cause.
 
-  Extract `loss_estimate = 7900` and `cause = gradual` from the first; `6300` / `sudden`
+  Extract `loss_estimate = 7912` and `cause = gradual` from the first; `6284` / `sudden`
   from the second.
 - **Ground truth:** the payout side already lives in structured columns — the parsed
-  `loss_estimate` reconciles against `claims.reported_amount`, and the paid-to-reported
-  ratio is computed from the real `claim_payments.paid_amount` / `claims.status`, **no
-  answer leaked**. The one fact with no home elsewhere is the sudden/gradual label; it is
-  shipped as a **withheld** `adjuster_notes.water_cause` answer-key column (`sudden` /
-  `gradual` / null for non-water claims) used **only** to check the parser round-trips —
-  it is **not** handed to students, who must recover the label from `body`.
+  `loss_estimate` reconciles against `claims.reported_amount` (the note renders it rounded
+  to the nearest dollar, so the two agree to within \$1), and the paid-to-reported ratio is
+  computed from the real `claim_payments.paid_amount` / `claims.status`, **no answer
+  leaked**. The one fact with no home elsewhere is the sudden/gradual label: it never
+  becomes a structured `claims` column (both `claims`, which tilts adjudication on it, and
+  `adjuster_notes`, which renders it, derive it from the same pure seed-keyed function). It
+  is shipped as a **withheld** `adjuster_notes.water_cause` answer-key column (`sudden` /
+  `gradual` / null for non-water claims) used **only** to check the parser round-trips — it
+  is **not** handed to students, who must recover the label from `body`.
 - **Tables:** `adjuster_notes.body`, `adjuster_notes.claim_id`,
   `adjuster_notes.water_cause` (withheld key), `claims.peril`, `claims.reported_amount`,
   `claims.status`, `claim_payments.paid_amount`.
-- **Magnitude (to be planted):** today water-damage claims settle at the **book average**
-  (paid-to-reported ≈ **0.63**, `seed=7`) because adjudication is cause-independent — the
-  split does not exist yet. Target once planted: split water losses **sudden ≈ 0.60 /
-  gradual ≈ 0.40**; gradual carries an elevated denied+partial share (≈ **0.45 denied /
-  0.25 partial**, so only ~1-in-4 pays in full) vs. sudden at the book mix (approved ≈
-  0.62). That lands **gradual paid-to-reported ≈ 0.25–0.35 vs. sudden ≈ 0.60–0.65** — a
-  roughly **2× gap** inside a single `peril` — and pulls the blended `water_damage` ratio
-  down to ≈ 0.48–0.52. (Directional targets; the realize step measures and firms them.)
+- **Magnitude (planted, measured `seed=7`):** water losses split **sudden ≈ 0.57 /
+  gradual ≈ 0.43** (`GRADUAL_SHARE = 0.40`; ~57/43 at `scale=1.0`). Gradual claims draw a
+  harder adjudication mix (approved 0.22 / partial 0.25 / **denied 0.45** / open 0.08, so
+  only ~1-in-4 pays in full) while sudden claims keep the book mix (approved 0.62). That
+  lands **gradual paid-to-reported ≈ 0.33 vs. sudden ≈ 0.63** at `scale=1.0` — a **~1.9×
+  gap** inside a single `peril` — pulling the blended `water_damage` ratio to ≈ **0.52**
+  (from ≈ 0.65 before). At `scale=0.5` the small water subset (~65 claims) is noisier:
+  gradual ≈ 0.32, sudden ≈ 0.55 (~1.7× gap), blended ≈ 0.50. Book-level, lowering the
+  water slice pulls overall paid-to-reported from ≈ 0.64 to ≈ **0.60** and the loss ratio
+  from ≈ 0.65 to ≈ **0.63** (still within the documented 0.62–0.69 band); every other
+  peril's adjudication is untouched.
 
 An analyst who trusts the `peril` column sees one `water_damage` bucket that pays like the
 rest of the book. The teaching point is that the **coverage trigger** — sudden-and-

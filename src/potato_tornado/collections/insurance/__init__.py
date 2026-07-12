@@ -19,6 +19,7 @@ Tables
 - ``claims``         : the filings — frequency x severity; most policies produce none.
 - ``claim_payments`` : the payout (the actual), one row per settled claim.
 - ``claim_status_history`` : the claim lifecycle — one row per status transition.
+- ``adjuster_notes`` : one free-text loss-description note per claim (the document side).
 
 Table builders live in ``tables/``, the domain catalogs in ``constants.py``, and
 the intended analytical signals in ``scenarios/``.
@@ -27,6 +28,7 @@ the intended analytical signals in ``scenarios/``.
 from __future__ import annotations
 
 from potato_tornado.collections.insurance.tables import (
+    build_adjuster_notes,
     build_adjusters,
     build_brokers,
     build_claim_payments,
@@ -98,6 +100,13 @@ def build() -> Collection:
                 build_claim_status_history,
                 depends_on=("claims",),
                 description="Claim lifecycle log — one row per status transition.",
+            ),
+            TableSpec(
+                "adjuster_notes",
+                build_adjuster_notes,
+                depends_on=("claims",),
+                description="One free-text loss-description note per claim; the note renders "
+                "the reported estimate and, for water losses, the sudden/gradual cause.",
             ),
         ),
     )
