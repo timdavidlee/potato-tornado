@@ -13,7 +13,16 @@ update the matching line below in the same change.
 
 - **Referential integrity.** `shipments.warehouse_id ∈ warehouses`,
   `shipments.carrier_id ∈ carriers`, `scan_events.shipment_id ∈ shipments`,
-  `deliveries.shipment_id ∈ shipments`.
+  `deliveries.shipment_id ∈ shipments`, `carrier_policies.carrier_id ∈ carriers`.
+- **`carrier_policies` is 1:1 with `carriers`.** Exactly one rate-card document per carrier
+  (`carrier_policies.height == carriers.height`, `carrier_id` unique) — a fixed dim, not
+  scaled.
+- **Rate-card prose reconciles with the structured columns (no leak).** Parsing each
+  `carrier_policies.body` recovers the carrier's `base_rate` / `per_kg_rate` /
+  `fuel_surcharge_pct` **exactly** (they are rendered from the `carriers` dim, not
+  re-sampled). The one fact rendered that lives nowhere else, the guarantee threshold, is
+  carried beside `body` as the withheld answer-key column `guarantee_days` — see
+  `scenarios/refund-exposure-tracks-guarantee-not-reliability.md`.
 - **`deliveries` is 1:1 with `shipments`.** `deliveries.height == shipments.height` and
   `shipment_id` is unique in each — every parcel has exactly one terminal outcome.
 - **Scan timelines are ordered.** Within a shipment, `scan_events` rows have strictly
@@ -32,7 +41,8 @@ update the matching line below in the same change.
   descriptive dim attributes — **not** terms in this identity (see deliberate simplifications).
 - **Non-negativity / bounds.** `weight_kg ∈ (0, 50]`, `shipping_cost > 0`,
   `dest_zone ∈ [1, 8]`, `attempts ∈ [1, 3]`, `seq ≥ 1`, `reliability ∈ (0, 1)`,
-  `fuel_surcharge_pct ∈ [0.08, 0.16]`, `capacity_units > 0`,
+  `fuel_surcharge_pct ∈ [0.08, 0.16]`, `carrier_policies.guarantee_days ∈ {1, 2, 3}`,
+  `capacity_units > 0`,
   `length_cm / width_cm / height_cm > 0`. `warehouses.opened_date` precedes the data window's
   `start_date`.
 - **Dimensional weight is derivable, not priced.** `dim_weight = length_cm × width_cm ×
@@ -57,8 +67,9 @@ update the matching line below in the same change.
 
 ## Distributions & mixes (should look like the real world)
 
-- **Row counts (`scale=1.0`).** `carriers` = 5, `warehouses` = 12, `shipments` = 8000,
-  `deliveries` = 8000 (1:1), `scan_events` ≈ 3–6 × shipments (variable length).
+- **Row counts (`scale=1.0`).** `carriers` = 5, `carrier_policies` = 5 (1:1 with carriers,
+  fixed), `warehouses` = 12, `shipments` = 8000, `deliveries` = 8000 (1:1), `scan_events`
+  ≈ 3–6 × shipments (variable length).
 - **Service mix.** ground 0.70 / express 0.22 / overnight 0.08; promised transit ground 5d,
   express 2d, overnight 1d. Faster tiers cost more (multipliers 1.0 / 1.6 / 2.5) and are rarer.
 - **weight_kg.** Lognormal, median ≈ 2 kg, σ ≈ 0.8, clamped to [0.1, 50] — most parcels
@@ -78,6 +89,12 @@ update the matching line below in the same change.
   break-even (200 kg/m³), ≈ 0.5 of parcels are dimensional-weight-bound (`dim_weight > weight_kg`).
 - **transport_mode / fuel_surcharge_pct.** Static per-carrier catalog attributes: 2 air / 2
   ground / 1 regional; surcharge ≈ 0.08–0.16, higher for air carriers.
+- **carrier_policies.guarantee_days.** One per carrier, assigned by reliability rank via the
+  ladder `(1, 1, 2, 2, 3)` days (most → least reliable): Summit 1 / Pony 1 / BlueDart 2 /
+  Meridian 2 / Coyote 3. Rendered into `body` prose across 3 name-keyed template variants
+  (formal card / paragraph / terms) and withheld as the answer key. It exists only in the
+  prose; refund exposure computed from it does **not** rank with reliability — see the
+  scenario.
 - **capacity_units.** Lognormal per warehouse (median ≈ 45k, σ ≈ 0.55), rounded to an integer —
   spreads hub-vs-satellite sizing; a long right tail (a few large hubs).
 - **opened_date.** Uniform in [`start_date` − 10y, `start_date` − 1y] — every facility predates

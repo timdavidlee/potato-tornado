@@ -10,6 +10,9 @@ SLA** whose miss rate rises with shipping distance (``dest_zone``).
 Tables
 ------
 - ``carriers``     : the carrier catalog (dim), with base/per-kg rates and reliability.
+- ``carrier_policies`` : one rate-card / service-guarantee **document** per carrier — a
+                     free-form ``body`` rendering pricing terms plus an on-time refund
+                     guarantee whose threshold lives only in the prose.
 - ``warehouses``   : origin fulfillment centers (dim), by city and region.
 - ``shipments``    : one row per parcel dispatched — the plan (``promised_date``).
 - ``scan_events``  : the tracking event log, several ordered rows per shipment.
@@ -23,6 +26,7 @@ the intended analytical signals in ``scenarios/``.
 from __future__ import annotations
 
 from potato_tornado.collections.logistics.tables import (
+    build_carrier_policies,
     build_carriers,
     build_deliveries,
     build_scan_events,
@@ -41,6 +45,13 @@ def build() -> Collection:
         "a per-shipment event log plus promised-vs-actual SLA performance.",
         tables=(
             TableSpec("carriers", build_carriers, description="Carrier catalog (dim)."),
+            TableSpec(
+                "carrier_policies",
+                build_carrier_policies,
+                depends_on=("carriers",),
+                description="One rate-card / service-guarantee document per carrier (the "
+                "guarantee threshold lives only in the prose).",
+            ),
             TableSpec("warehouses", build_warehouses, description="Origin fulfillment centers."),
             TableSpec(
                 "shipments",
