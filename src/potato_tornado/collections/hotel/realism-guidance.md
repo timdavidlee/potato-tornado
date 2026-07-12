@@ -63,9 +63,20 @@ update the matching line below in the same change.
   a `from_room_type` (it's already the top). `rate_delta > 0` is the property's rack-rate
   gap between the two classes, and `upgrade_fee < rate_delta × nights` always (the fee is a
   discounted slice of the gap, never the whole gap).
+- **Cancellation notes render the reservation, leaking only the reason.** There is exactly
+  one `cancellation_notes` row per **cancelled** reservation (none for `honoured` / `no_show`),
+  `note_date` equals that reservation's `cancellation_date`, and `body` is free-form prose that
+  *renders existing facts*: the "N days before arrival" it states equals
+  `check_in_date − cancellation_date` exactly (so the timing is a faithful render, no answer
+  leaked), and the `RES-` id it names is the row's `reservation_id`. The one fact that lives
+  nowhere else is the cancellation **reason**, shipped as the withheld answer-key column
+  `cancel_reason ∈ {rate_shopping, plans_changed, other}`; the bucket a rule-parser reads out of
+  `body` equals `cancel_reason` for every row. See
+  `scenarios/cancellation-notes-reveal-price-shopping.md`.
 - **Referential integrity.** `reservations.property_id ∈ properties`,
-  `stays.reservation_id ∈ reservations` (honoured), and `room_types` / `service_orders` /
-  `room_upgrades` FKs resolve (`room_upgrades.stay_id ∈ stays`).
+  `stays.reservation_id ∈ reservations` (honoured),
+  `cancellation_notes.reservation_id ∈ reservations` (cancelled), and `room_types` /
+  `service_orders` / `room_upgrades` FKs resolve (`room_upgrades.stay_id ∈ stays`).
 
 ## Distributions & mixes (should look like the real world)
 
@@ -98,6 +109,14 @@ update the matching line below in the same change.
   cancels late (`f` ≈0.61), non-refundable Advance-Purchase early (`f` ≈0.23). As days before
   arrival that's Advance-Purchase ≈24 vs BAR ≈10; ~12% of bookings are cancelled. See
   `scenarios/cancellations-land-late-for-flexible-rates.md`.
+- **Cancellation reason mix (free-text).** `cancellation_notes.cancel_reason` is drawn
+  conditional on the reservation's `rate_plan` (`rate_shopping` / `plans_changed` / `other`):
+  flexible BAR skews to price-shopping (`rate_shopping` ≈0.63, dominant), non-refundable
+  Advance-Purchase to a genuine plan change (`plans_changed` ≈0.67, `rate_shopping` ≈0.17),
+  with Package (`rate_shopping` ≈0.46) and Corporate-negotiated (`plans_changed` ≈0.54) between;
+  overall ≈`rate_shopping 0.50 / plans_changed 0.34 / other 0.16`. So price-shopping is a
+  refundable-rate phenomenon — legible only after parsing the note. See
+  `scenarios/cancellation-notes-reveal-price-shopping.md`.
 - **Booking volume & occupancy.** ~24,000 reservations across the 3-year window, assigned to
   properties **in proportion to room count**, so occupancy scales with size instead of sitting
   flat: small (~60-room) properties run ≈5 occupied rooms/day, large (~210-room) ones ≈15

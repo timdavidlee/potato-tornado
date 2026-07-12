@@ -7,6 +7,7 @@ collection's ``__init__`` can import them from one place.
 
 from __future__ import annotations
 
+from potato_tornado.collections.hotel.tables.cancellation_notes import build_cancellation_notes
 from potato_tornado.collections.hotel.tables.demand_forecast import build_demand_forecast
 from potato_tornado.collections.hotel.tables.properties import build_properties
 from potato_tornado.collections.hotel.tables.reservations import build_reservations
@@ -17,6 +18,7 @@ from potato_tornado.collections.hotel.tables.stay_changes import build_stay_chan
 from potato_tornado.collections.hotel.tables.stays import build_stays
 
 __all__ = [
+    "build_cancellation_notes",
     "build_demand_forecast",
     "build_properties",
     "build_reservations",

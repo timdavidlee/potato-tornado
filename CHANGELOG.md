@@ -1,3 +1,9 @@
+## v0.8.0 (2026-07-11)
+
+### Feat
+
+- **data-collection**: realize document-based scenario for hotel
+
 ## v0.7.0 (2026-07-11)
 
 ### Feat

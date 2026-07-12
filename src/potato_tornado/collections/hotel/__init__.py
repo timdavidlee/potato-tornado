@@ -16,6 +16,8 @@ Tables
 - ``room_upgrades``   : mid-stay room-class upgrades sold as a discounted upsell.
 - ``stay_changes``    : stay-length amendments (early checkout / night extension).
 - ``demand_forecast`` : forecast vs. actual occupancy per property per day.
+- ``cancellation_notes``: free-form front-desk log, one per cancelled booking,
+                        whose prose reveals *why* a booking cancelled.
 
 Table builders live in ``tables/``, the domain catalogs in ``constants.py``, and
 the intended analytical signals in ``scenarios/``.
@@ -24,6 +26,7 @@ the intended analytical signals in ``scenarios/``.
 from __future__ import annotations
 
 from potato_tornado.collections.hotel.tables import (
+    build_cancellation_notes,
     build_demand_forecast,
     build_properties,
     build_reservations,
@@ -85,6 +88,12 @@ def build() -> Collection:
                 build_demand_forecast,
                 depends_on=("properties", "stays"),
                 description="Forecast vs. actual occupancy per day.",
+            ),
+            TableSpec(
+                "cancellation_notes",
+                build_cancellation_notes,
+                depends_on=("reservations",),
+                description="Free-form front-desk cancellation log, one per cancelled booking.",
             ),
         ),
     )
