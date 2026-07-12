@@ -1,3 +1,9 @@
+## v0.6.0 (2026-07-11)
+
+### Feat
+
+- **data-collection**: draft one new scenario doc per collection
+
 ## v0.5.0 (2026-07-11)
 
 ### Feat
