@@ -50,7 +50,8 @@ update the matching line below in the same change.
   `policies.status ∈ {active, lapsed, cancelled}`;
   `adjusters.team ∈ {auto, property, liability, catastrophe}`;
   `adjusters.seniority ∈ {junior, senior, lead}`; `quotes.product ∈ {auto, home, renters}`;
-  `claim_payments.settlement_method ∈ {check, ach, card}`.
+  `claim_payments.settlement_method ∈ {check, ach, card}`;
+  `adjuster_notes.water_cause ∈ {sudden, gradual}` on water-damage claims (null elsewhere).
 - **Bounded enrichment ranges.** `policyholders.tenure_years ∈ [0, 15]`;
   `brokers.tenure_years ∈ [1, 30]`; `brokers.commission_rate ∈ [0.08, 0.15]`.
 - **Bundled is derived.** `policies.bundled` is true **iff** the holder appears on ≥2
@@ -58,6 +59,14 @@ update the matching line below in the same change.
 - **`at_fault` nullity.** `claims.at_fault` is non-null **iff** the claim's policy
   `product = 'auto'` (a liability posture only auto claims carry); it is null on every non-auto
   claim. `catastrophe_flag`, `fraud_flag`, and `litigated` are always non-null booleans.
+- **Adjuster notes reconcile.** `adjuster_notes.claim_id ∈ claims` and is **1:1** with
+  `claims` (exactly one note per claim). The dollar figure rendered in `body` equals the
+  claim's `reported_amount` rounded to the nearest dollar (so a parsed estimate reconciles to
+  within \$1 — no answer leaked). `adjuster_notes.water_cause ∈ {sudden, gradual}` **iff** the
+  claim's `peril = water_damage`, and is **null** otherwise; it is a **withheld** answer key
+  (the sudden/gradual coverage trigger is recorded only in the prose, never as a queryable
+  `claims` column) whose value must match the cause a keyword parse of `body` recovers. See
+  `scenarios/gradual-water-losses-settle-below-sudden.md`.
 - **Claim status history.** `claim_status_history.claim_id ∈ claims`; each claim has exactly
   **3** transition rows walking `reported → under_review → its adjudication status`
   (`seq ∈ {1, 2, 3}`, `from_status` null only on `seq = 1`). `changed_at` starts at the claim's
@@ -88,7 +97,8 @@ update the matching line below in the same change.
   (one row per coverage line: auto×3 / home×3 / renters×2 over the policies), `quotes` = 12,500
   (one converting quote per policy + non-converting; conversion ≈ 0.40), `claims` ≈ 620
   (frequency-derived, ~11% of policies), `claim_payments` ≈ 490 (~79% of claims — the settled
-  share), `claim_status_history` = **3 × claims** ≈ 1,860 (one row per lifecycle stage).
+  share), `claim_status_history` = **3 × claims** ≈ 1,860 (one row per lifecycle stage),
+  `adjuster_notes` = **1 × claims** ≈ 620 (one free-text loss-description note per claim).
 - **Adjuster assignment.** Each claim's `adjuster_id` is drawn **uniformly** over the 40
   adjusters — no per-adjuster load or performance signal (mirrors `broker_id`). `team` ≈ auto
   0.40 / property 0.30 / liability 0.20 / catastrophe 0.10; `seniority` ≈ junior 0.50 / senior
@@ -177,11 +187,18 @@ update the matching line below in the same change.
   loading on the ~11% of litigated claims (the litigation tax — see
   `scenarios/litigation-tax.md`), which nudges the overall median/mean up a few points.
 - **Adjudication mix.** approved 0.62 / partial 0.16 / denied 0.14 / open 0.08 (measured ≈
-  0.61 / 0.18 / 0.13 / 0.08). See `scenarios/adjudication-funnel-reported-vs-paid.md`.
+  0.61 / 0.18 / 0.13 / 0.08) for every peril **except** `water_damage`, whose adjudication
+  now **conditions on the note-native sudden/gradual cause**: `sudden` water claims keep the
+  book mix, `gradual` ones draw a harder mix (approved 0.22 / partial 0.25 / denied 0.45 /
+  open 0.08). So a cut of water-damage adjudication by cause is **not** flat — see
+  `scenarios/gradual-water-losses-settle-below-sudden.md`. See also
+  `scenarios/adjudication-funnel-reported-vs-paid.md`.
 - **paid_amount.** approved = `clip(min(reported, coverage_limit) − deductible, 0, ∞)`;
-  partial = 0.3–0.8× that. Total paid ≈ **62–64%** of total reported (the litigation loading
-  raises `reported` faster than `paid` on the litigated claims it caps, so the realization ratio
-  sits a touch below the pre-litigation ≈65%).
+  partial = 0.3–0.8× that. Total paid ≈ **58–62%** of total reported — a couple points below
+  a book without the water-cause tilt, because the ~40% of water claims labelled `gradual`
+  deny/partial far more (their slice pays ≈ 0.33 vs. ≈ 0.63 for sudden), pulling the blended
+  `water_damage` realization to ≈ 0.52. (The litigation loading pushes the other way, raising
+  `reported` faster than `paid` on the litigated claims it caps.)
 - **Settlement detail.** `settlement_days` a 5–45 day uniform integer draw (non-litigated
   mean ≈ 25 days), **stretched ×1.75 on litigated claims** (litigated mean ≈ 42 days, extending
   up to `round(45 × 1.75) = 79` — the litigation cycle-time tax, see
@@ -194,8 +211,9 @@ update the matching line below in the same change.
   scale); the recovered amount is **0.20–0.60× `paid_amount`**. A net-of-subro loss ratio
   (gross paid vs. paid − recovery) is the intended use; the recovery is flat (no tier/severity
   coupling beyond the at-fault gate).
-- **Loss ratio (Σ paid ÷ Σ premium).** Overall ≈ **0.65** (≈0.62–0.69 across seeds), rising
-  **preferred ≈ 0.46 → standard ≈ 0.65 → high_risk ≈ 0.90** (tier means over several seeds; the
+- **Loss ratio (Σ paid ÷ Σ premium).** Overall ≈ **0.63** (≈0.62–0.69 across seeds — the
+  water-cause adjudication tilt shaves ≈2 points off a book without it, but stays in band),
+  rising **preferred ≈ 0.46 → standard ≈ 0.65 → high_risk ≈ 0.90** (tier means over several seeds; the
   per-tier ratios carry ±0.15 seed noise and the standard/high_risk gap can narrow or invert on
   a given seed — see `scenarios/loss-ratio-rises-with-risk-tier.md`). These sit a few points
   above a litigation-free book: the litigation tax adds ~11% of claims paying ≈1.8× and lifts
@@ -203,8 +221,11 @@ update the matching line below in the same change.
   untouched.
 - **peril mix.** Skewed (not uniform): collision ≈ 0.28 / water_damage ≈ 0.22 / weather ≈ 0.20
   / theft ≈ 0.14 / liability ≈ 0.10 / fire ≈ 0.06 — the common personal-lines perils dominate,
-  fire is rare. This is a **marginal** frequency only; peril stays independent of product and
-  geography (see Deliberate simplifications). Measured shares carry small-n seed noise.
+  fire is rare. This is a **marginal** frequency only; peril *frequency* stays independent of
+  product and geography (see Deliberate simplifications). Measured shares carry small-n seed
+  noise. **Within `water_damage`**, a note-native cause splits the claims ≈ **57% sudden /
+  43% gradual** (`GRADUAL_SHARE = 0.40`) and drives the adjudication gap above — the label
+  lives only in `adjuster_notes.body` (see `scenarios/gradual-water-losses-settle-below-sudden.md`).
 
 ## Deliberate simplifications (intended — do not "fix")
 
@@ -353,4 +374,21 @@ from claim_payments pay
 join claims c using (claim_id)
 where pay.subrogation_recovery_amount > 0
   and (c.at_fault is distinct from false or pay.subrogation_recovery_amount > pay.paid_amount);
+
+-- adjuster notes are 1:1 with claims and water_cause is set iff water_damage (bad = 0)
+select count(*) filter (where n.claim_id is null)                                       -- unmatched
+     + (select count(*) - count(distinct claim_id) from adjuster_notes)                 -- duplicate notes
+     + count(*) filter (where (c.peril = 'water_damage') <> (n.water_cause is not null)) as bad
+from claims c left join adjuster_notes n using (claim_id);
+
+-- water-damage adjudication is NOT flat by the note-native cause: gradual settles ~2x
+-- below sudden (parse the note; expect gradual ≈ 0.33 vs sudden ≈ 0.63 at full scale)
+with parsed as (
+  select n.claim_id,
+         case when n.body ~* '(seepage|gradual|long-term|wear|deterioration|over time|maintenance)' then 'gradual'
+              when n.body ~* '(burst|sudden|accidental discharge|ruptured|sprang a leak)' then 'sudden' end as cause
+  from adjuster_notes n join claims c using (claim_id) where c.peril = 'water_damage')
+select p.cause, round(sum(coalesce(pay.paid_amount, 0)) / sum(c.reported_amount), 3) as paid_over_reported
+from parsed p join claims c using (claim_id) left join claim_payments pay using (claim_id)
+group by p.cause;
 ```
