@@ -1,3 +1,9 @@
+## v0.4.0 (2026-07-11)
+
+### Feat
+
+- **data-collection**: add document-based scenario propose/realize commands
+
 ## v0.3.0 (2026-07-11)
 
 ### Feat
