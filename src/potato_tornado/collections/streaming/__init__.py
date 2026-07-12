@@ -20,6 +20,8 @@ Tables
 - ``subscribers``        : user accounts, each in a region.
 - ``subscriptions``      : one subscription per subscriber, active or cancelled.
 - ``rentals``            : one-off premium (PVOD) rentals, licensed to the renter's region.
+- ``rental_receipts``    : one free-form markdown receipt per rental; the tax-inclusive
+                           total lives only in the ``body`` prose (document scenario).
 
 Table builders live in ``tables/``, the domain catalogs in ``constants.py``, and
 the intended analytical signals in ``scenarios/``.
@@ -31,6 +33,7 @@ from potato_tornado.collections.streaming.tables import (
     build_actors,
     build_plans,
     build_regions,
+    build_rental_receipts,
     build_rentals,
     build_subscribers,
     build_subscriptions,
@@ -79,6 +82,13 @@ def build() -> Collection:
                 build_rentals,
                 depends_on=("subscribers", "titles", "title_availability"),
                 description="One-off premium rentals, licensed to the renter's region.",
+            ),
+            TableSpec(
+                "rental_receipts",
+                build_rental_receipts,
+                depends_on=("rentals", "subscribers", "titles"),
+                description="Free-form markdown rental receipt per rental; the "
+                "tax-inclusive total lives only in the body prose.",
             ),
         ),
     )
