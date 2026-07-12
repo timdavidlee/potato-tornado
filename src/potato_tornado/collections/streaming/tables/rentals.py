@@ -24,6 +24,13 @@ from potato_tornado.core.collection import GenContext
 # Wide co-prime modulus for the "pick one of a short candidate list" roll.
 _ROLL_MAX = 9973
 
+# Renter concentration (lognormal sigma). Rentals are not spread evenly: each subscriber
+# gets a heavy-tailed rental propensity, so a small "whale" minority places most rentals
+# while most subscribers never rent — the PVOD stream is Pareto-like, not a flat uniform
+# pick. Tuned so the top decile of renters takes ≈ 45% of rentals and the heaviest renters
+# buy dozens of titles. See scenarios/rentals-concentrate-in-a-whale-minority.md.
+_RENTER_PROPENSITY_SIGMA = 1.7
+
 # Viewer rating (1-5), left by only a minority of rentals. The rare $19.99
 # day-and-date tier rates lower than the cheaper catalogue tiers (price-expectation
 # gap). See scenarios/premium-rentals-rate-lower.md.
@@ -58,7 +65,14 @@ def build_rentals(ctx: GenContext) -> pl.DataFrame:
     premium_frame_ids = titles.filter(pl.col("is_premium"))["title_id"].to_list()
     all_premium = premium_frame_ids or titles["title_id"].to_list()
 
-    sub_idx = ctx.dist.integers(n, 0, num_subs - 1)
+    # Whale-minority renter draw: each subscriber gets a heavy-tailed lognormal propensity,
+    # so rentals concentrate on a small set of subscribers instead of spreading uniformly.
+    # Weights and the skewed pick run on a dedicated child stream, so they don't reorder the
+    # base-stream title roll below (and every downstream child draw stays identical).
+    whale = ctx.rng.child("whale").numpy
+    renter_weights = np.exp(whale.normal(0.0, _RENTER_PROPENSITY_SIGMA, num_subs))
+    renter_weights /= renter_weights.sum()
+    sub_idx = whale.choice(num_subs, size=n, p=renter_weights)
     title_roll = ctx.dist.integers(n, 0, _ROLL_MAX)
     # Price is a weighted draw over the PVOD ladder (cheap/standard dominate, the
     # $19.99 day-and-date release is rare) — a named child so it doesn't reorder

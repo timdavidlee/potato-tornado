@@ -60,9 +60,20 @@ _NO_SHOW_TYPE_OFFSET = {
 # ``scenarios/frequent-vs-one-off-patients.md``.
 _PATIENT_PROPENSITY_SIGMA = 0.8
 
+# Clinical booking tilt. On top of the lognormal propensity, chronic / high-risk
+# patients rebook more, so appointment volume concentrates in the clinically sickest
+# minority — a log-linear multiplier where ``chronic_flag`` adds a fixed lift and
+# ``risk_score`` a continuous one around its ≈ 0.35 mean. Multiplicative, so it composes
+# with (does not replace) the heavy-tailed booking shape above. Tuned so the ≈ 22% chronic
+# minority takes ≈ 40% of appointments (per-capita ≈ 2.4x) and corr(risk_score, visits)
+# ≈ 0.38. See ``scenarios/high-risk-patients-drive-visits.md``.
+_CHRONIC_LOG_LIFT = 0.40
+_RISK_LOG_LIFT = 2.5
+_RISK_PIVOT = 0.35
+
 
 def build_appointments(ctx: GenContext) -> pl.DataFrame:
-    patients = ctx.table("patients")["patient_id"].to_list()
+    patients = ctx.table("patients")
     booked = ctx.table("slots").filter(pl.col("is_booked"))
     n = booked.height
 
@@ -132,19 +143,26 @@ def _specialty_lookup(ctx: GenContext) -> dict[str, str]:
     )
 
 
-def _draw_patients(ctx: GenContext, patients: list[str], n: int) -> np.ndarray:
-    """Assign each appointment a patient with a heavy-tailed booking propensity.
+def _draw_patients(ctx: GenContext, patients: pl.DataFrame, n: int) -> np.ndarray:
+    """Assign each appointment a patient with a heavy-tailed, clinically-tilted propensity.
 
-    Each patient gets a lognormal weight, so a frequent core rebooks far more than
-    the long tail (top decile ≈ a third of appointments). Both the weights and the
-    selection come from an independent ``child`` stream, so this does not shift the
-    table's other draws (lead time, status, visit type). See
-    ``scenarios/frequent-vs-one-off-patients.md``.
+    Each patient gets a lognormal weight (a frequent core rebooks far more than the long
+    tail), then a log-linear clinical multiplier tilts that weight toward chronic /
+    high-``risk_score`` patients — so the sickest minority both books disproportionately
+    (``scenarios/high-risk-patients-drive-visits.md``) and sharpens the overall
+    concentration (``scenarios/frequent-vs-one-off-patients.md``). The clinical tilt reads
+    deterministic patient columns (no new random draw); the lognormal weights and the
+    selection come from an independent ``child`` stream, so this does not shift the table's
+    other draws (lead time, status, visit type).
     """
+    ids = patients["patient_id"].to_numpy()
+    chronic = patients["chronic_flag"].to_numpy()
+    risk = patients["risk_score"].to_numpy()
     stream = ctx.rng.child("patient_bookings").numpy
-    weights = np.exp(stream.normal(0.0, _PATIENT_PROPENSITY_SIGMA, len(patients)))
+    weights = np.exp(stream.normal(0.0, _PATIENT_PROPENSITY_SIGMA, ids.shape[0]))
+    weights *= np.exp(_CHRONIC_LOG_LIFT * chronic + _RISK_LOG_LIFT * (risk - _RISK_PIVOT))
     weights /= weights.sum()
-    return stream.choice(np.asarray(patients, dtype=object), size=n, p=weights)
+    return stream.choice(np.asarray(ids, dtype=object), size=n, p=weights)
 
 
 def _no_show_prob(

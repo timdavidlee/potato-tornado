@@ -108,6 +108,13 @@ update the matching line below in the same change.
 - **Rental price mix.** The PVOD ladder is skewed, not uniform: 4.99 ≈0.42 / 6.99 ≈0.45
   (modal) / 19.99 ≈0.13 — the two cheaper tiers carry the volume and the day-and-date premium
   release stays rare.
+- **Rental concentration (whales).** Rentals are not spread evenly across subscribers: each
+  subscriber gets a heavy-tailed lognormal rental propensity (σ ≈ 1.7), so a whale minority
+  places most rentals while most subscribers never rent. At seed 7 / scale 0.5 ≈ 30% of
+  subscribers ever rent, the top decile of renters takes ≈ 45% of rentals (≈ 0.38–0.45 across
+  seeds; a uniform renter draw would sit near ≈ 0.21), and the heaviest renter buys ≈ 30+ titles
+  while the typical (median) renter buys 1. See
+  `scenarios/rentals-concentrate-in-a-whale-minority.md`.
 - **Runtime by kind.** `runtime_minutes` is feature-length for films (≈110±20 min) and a
   single episode for series (≈45±10 min), so films run ~2.5× a series row. Floored at 5.
 - **Maturity mix.** G ≈0.08 / PG ≈0.20 / PG-13 ≈0.34 (modal) / R ≈0.20 / TV-MA ≈0.18 — flat
@@ -145,10 +152,6 @@ update the matching line below in the same change.
 - **Rentals are independent of tenure.** A subscriber can rent on any date in the window,
   regardless of whether their subscription was active then. Tightening rentals to fall
   within an active subscription window is a candidate future invariant.
-- **Rentals spread uniformly across subscribers.** The renter of each rental is drawn
-  uniformly, so there is no "heavy renter" concentration (rentals/subscriber ≈ Poisson-ish,
-  max a handful). Concentrating rentals in a whale minority is a candidate future scenario,
-  not a realism fix.
 - **Rental price is per-transaction, not a title attribute.** `rentals.price` is an
   independent weighted draw on every rental, so the *same* title can be rented at $4.99 and
   $19.99 in the same period — price does not attach to the title, nor decay from a day-and-date

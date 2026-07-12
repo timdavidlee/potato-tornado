@@ -53,6 +53,34 @@ def test_utilisation_concentrates_in_demand_heavy_specialties(
     assert heavy_util > spare_util + 0.15
 
 
+def _appts_per_patient(clinic: dict[str, pl.DataFrame]) -> pl.DataFrame:
+    per = clinic["appointments"].group_by("patient_id").agg(pl.len().alias("appts"))
+    return (
+        clinic["patients"]
+        .join(per, on="patient_id", how="left")
+        .with_columns(pl.col("appts").fill_null(0))
+    )
+
+
+def test_chronic_patients_book_a_disproportionate_share(clinic: dict[str, pl.DataFrame]) -> None:
+    by = (
+        _appts_per_patient(clinic)
+        .group_by("chronic_flag")
+        .agg(pl.len().alias("pats"), pl.col("appts").sum().alias("appts"))
+    )
+    per_capita = {
+        row["chronic_flag"]: row["appts"] / row["pats"] for row in by.iter_rows(named=True)
+    }
+    # Chronic minority (≈22% of the panel) books ≈2.4x per capita at seed 7 / scale 0.5.
+    assert per_capita[True] > 1.8 * per_capita[False]
+
+
+def test_risk_score_correlates_with_visit_count(clinic: dict[str, pl.DataFrame]) -> None:
+    corr = _appts_per_patient(clinic).select(pl.corr("risk_score", "appts")).item()
+    # Continuous companion of the chronic tilt: ≈0.38 at seed 7 / scale 0.5, clearing 0.30.
+    assert corr > 0.30
+
+
 def test_allowed_ratio_falls_from_commercial_to_medicaid(clinic: dict[str, pl.DataFrame]) -> None:
     inv = clinic["invoices"]
     allowed = (pl.col("charge") - pl.col("adjustment_amount") - pl.col("denied_amount")) / pl.col(

@@ -86,9 +86,16 @@ update the matching line below in the same change.
   (Telehealth) up to ≈ $340 (Minor Procedure), with mild ±8% variation; Minor Procedure is
   ≈ 9–10% of visits but ≈ 20% of gross charges. See `scenarios/charge-varies-by-procedure.md`.
 - **Patient booking concentration.** Patients book with a per-patient lognormal propensity
-  (σ ≈ 0.8), so the top decile of patients takes ≈ 31–35% of appointments (top quintile
-  ≈ 48–53%) and ≈ 4% never book — far from uniform. See
-  `scenarios/frequent-vs-one-off-patients.md`.
+  (σ ≈ 0.8) multiplied by the clinical tilt below, so the top decile of patients takes
+  ≈ 33–40% of appointments (top quintile ≈ 51–57%) and ≈ 5–7% never book — far from uniform.
+  See `scenarios/frequent-vs-one-off-patients.md`.
+- **Clinical booking tilt.** Appointment volume concentrates in the chronic / high-`risk_score`
+  minority: chronic patients are ≈ 22% of the panel but book ≈ 33–41% of appointments (per-capita
+  ≈ 1.4–2.4×, seed-sensitive on the small panel), and `corr(risk_score, visit_count) ≈ 0.23–0.40`
+  (≈ 0.38 at seed 7 / scale 0.5). Planted by a log-linear multiplier on the booking weight in
+  `_draw_patients` — `chronic_flag` / `risk_score` are still drawn flat and mutually independent
+  at the *patient* grain (see below); the tilt lives in the appointment draw. See
+  `scenarios/high-risk-patients-drive-visits.md`.
 - **Seasonality & growth.** Slot days are drawn with a winter-peaking seasonal weight × an
   upward trend, so booked volume peaks in winter (Dec–Feb ≈ 1.3× the Jun–Aug trough) and
   grows ≈ 8%/year across the window. See `scenarios/seasonal-and-growth.md`.
@@ -118,8 +125,10 @@ update the matching line below in the same change.
   self_pay}` at ≈ 0.50 / 0.25 / 0.15 / 0.10 — a **patient-level** coverage band, drawn
   independently of the per-visit `invoices.payer` (they are separate axes and need not agree).
 - **Patient clinical attributes.** `patients.chronic_flag` true ≈ 22% (Bernoulli);
-  `patients.risk_score ∈ [0, 1]`, clamped-normal mean ≈ 0.35, sd ≈ 0.18. Both flat and mutually
-  independent.
+  `patients.risk_score ∈ [0, 1]`, clamped-normal mean ≈ 0.35, sd ≈ 0.18. Both are drawn flat and
+  mutually independent at the patient grain — but they are *no longer inert*: the appointment
+  booking draw tilts toward them, so they drive visit concentration downstream (see the Clinical
+  booking tilt line above and `scenarios/high-risk-patients-drive-visits.md`).
 
 ## Deliberate simplifications (intentional — do not "fix")
 
@@ -148,7 +157,7 @@ update the matching line below in the same change.
   write-down / denial rates now vary by `payer` (see the adjudication lines above). What is still
   simplified: there are no per-procedure line items and no denial→resubmission→repayment lifecycle;
   a denied amount is simply carved off the charge in one shot.
-- **Patient clinical attributes carry no planted signal.** `chronic_flag` / `risk_score` are
-  flat, independent draws — deliberately *not* correlated with `age_band`, and high-risk
-  patients do *not* concentrate visits. The "small high-risk minority drives a disproportionate
-  visit share" concentration is a candidate scenario, left for the scenario workflow to plant.
+- **Patient clinical attributes are uncorrelated with age.** `chronic_flag` / `risk_score` are
+  drawn flat and independent of `age_band` (no age→morbidity gradient) — a deliberate
+  simplification. They do, however, drive *appointment* concentration (the Clinical booking tilt
+  above), so they are not signal-free overall; only their coupling to `age_band` is suppressed.
