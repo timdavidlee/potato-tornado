@@ -10,6 +10,14 @@ How tests are written and run in this repo. Config lives in
   - `--strict-markers` — every `@pytest.mark.<x>` must be registered in `pyproject.toml`
     first, or collection errors. Don't invent ad-hoc markers.
   - `-ra` — a short summary of non-passing tests prints after each run.
+- **Full suite: run it in parallel** with `uv run pytest -n auto --dist loadscope`
+  (`pytest-xdist`, ~2.5× faster). Tests are deterministic (seeded) and isolated (DuckDB
+  in-memory / `tmp_path`, no shared files or global state), so parallelizing is safe.
+  `--dist loadscope` pins each test module to a single worker so the module-scoped
+  collection-generation fixtures generate once per module instead of once per worker —
+  materially faster than the default `--dist load`. `-n` is intentionally left out of
+  `addopts` so a single-test debug run (`uv run pytest tests/foo.py::test_bar`) skips the
+  worker-startup overhead; add `-n auto --dist loadscope` yourself for full-suite runs.
 - `pytest-cov` is available; run `uv run pytest --cov=potato_tornado` when you want coverage.
 
 ## Layout
@@ -57,4 +65,4 @@ How tests are written and run in this repo. Config lives in
 ## Before committing
 
 Full gate:
-`uv run ruff format && uv run ruff check && uv run pyright && uv run pytest`.
+`uv run ruff format && uv run ruff check && uv run pyright && uv run pytest -n auto --dist loadscope`.
