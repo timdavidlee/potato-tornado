@@ -18,17 +18,26 @@
 - **Parse target:** from each rate card, extract (a) the **guarantee threshold** `N`
   (the days-late that triggers a full refund) and (b) the pricing terms (`base_rate`,
   `per_kg_rate`, `fuel_surcharge_pct`) used to prove the parser reads real rendered
-  facts. Example prose:
+  facts. Three template variants are emitted (one name-keyed per carrier), so the
+  extractor must handle wording. Example emitted prose:
 
-  > **Coyote Ground — Rate Card & Service Guarantee.** Charges are billed at a **$2.25**
-  > base plus **$0.70/kg** of actual weight; an **8.0%** fuel surcharge is added. Ground
-  > service. *Guarantee:* shipping fees are refunded only when delivery runs **3 or more
-  > days** behind the promised date.
+  > Coyote Ground (ground). Every shipment carries a **$2.25 per shipment** base charge
+  > and **$0.70 per kg** of billable weight, with a fuel surcharge of **8.0%**. On-time
+  > promise: we refund the full shipping charge whenever a parcel arrives **3+ day(s)
+  > late** or worse.
 
   pulls `guarantee_days = 3`, `base_rate = 2.25`, `per_kg_rate = 0.70`,
-  `fuel_surcharge_pct = 0.08`. A premium card ("… refunded if a parcel arrives **1+
-  day(s) late** …") pulls `guarantee_days = 1`. Phrasing varies across 2–3 templates,
-  so the extractor must handle wording, not one fixed layout.
+  `fuel_surcharge_pct = 0.08`. A premium card in the formal template —
+
+  > **Summit Courier — Rate Card & Service Guarantee.** Charges are billed at a **$4.00
+  > base** plus **$1.10/kg** of actual weight; a **16.0% fuel surcharge** is added. Air
+  > service. *Guarantee:* shipping fees are refunded only when delivery runs **1 or more
+  > days** behind the promised date.
+
+  pulls `guarantee_days = 1`, `base_rate = 4.00`, `per_kg_rate = 1.10`,
+  `fuel_surcharge_pct = 0.16`. The number always sits immediately before its unit
+  keyword (`… base` / `…/kg` / `…%` / `… day`), so one set of regexes handles every
+  variant, not one fixed layout.
 - **Ground truth:** the pricing terms reconcile against **existing** columns —
   `carriers.base_rate`, `carriers.per_kg_rate`, `carriers.fuel_surcharge_pct` — so the
   recoverability layer proves the parse with **no answer leaked**. The one genuinely new
@@ -40,9 +49,10 @@
   `carriers.base_rate`, `carriers.per_kg_rate`, `carriers.fuel_surcharge_pct`,
   `carriers.reliability`, `deliveries.days_late`, `deliveries.status`,
   `shipments.shipping_cost`, `shipments.carrier_id` (join on `shipment_id` / `carrier_id`).
-- **Magnitude:** **to be planted.** Candidate thresholds by reliability rank — Summit 1d,
-  Pony 1d, BlueDart 2d, Meridian 2d, Coyote 3d — give (measured `seed=7, scale=1.0`,
-  full refund of `shipping_cost` on delivered parcels with `days_late ≥ N`):
+- **Magnitude:** **planted.** Thresholds are assigned by reliability rank via the ladder
+  `(1, 1, 2, 2, 3)` days (most → least reliable) — Summit 1d, Pony 1d, BlueDart 2d,
+  Meridian 2d, Coyote 3d. Measured (`seed=7, scale=1.0`, full refund of `shipping_cost` on
+  delivered parcels with `days_late ≥ N`):
 
   | carrier | reliability | guarantee `N` | refund ÷ revenue |
   |---|---|---|---|
@@ -53,12 +63,14 @@
   | Coyote Ground | 0.85 | 3d | ≈ 0.094 |
 
   The refund-to-revenue ranking (Meridian highest, Summit/Coyote lowest) is **decoupled**
-  from the reliability ranking. The counterfactual anchors it: under a **uniform** 2-day
-  guarantee for every carrier, refund-to-revenue instead descends monotonically with
-  reliability (Coyote highest at ≈ 0.166, Summit lowest at ≈ 0.077) — the ordinary "worst
-  carrier owes the most" story. The divergence is produced *entirely* by the per-carrier
-  thresholds that live only in the prose. The realiser finalizes the thresholds and
-  re-measures at the canonical scale.
+  from the reliability ranking: `corr(reliability, refund÷revenue) ≈ -0.08` at `scale=1.0`
+  (≈ -0.15 at the `scale=0.5` test scale) — essentially flat. The counterfactual anchors
+  it: under a **uniform** 2-day guarantee for every carrier, refund-to-revenue instead
+  descends strongly with reliability — Coyote highest at ≈ 0.166, Summit lowest at ≈ 0.077,
+  `corr ≈ -0.99` (≈ -0.87 at `scale=0.5`) — the ordinary "worst carrier owes the most"
+  story. The divergence is produced *entirely* by the per-carrier thresholds that live only
+  in the prose. Realized in `tables/carrier_policies.py`; asserted in
+  `tests/collections/logistics/test_scenarios.py`.
 
 An analyst hands each rate card to a parser, pulls the guarantee threshold `N` per
 carrier, then applies it to that carrier's delivered parcels: a parcel owes a refund of
@@ -82,7 +94,7 @@ import re, polars as pl
 
 def parse_card(body: str) -> dict[str, float | int]:
     # guarantee threshold: the integer of days in the guarantee/refund clause
-    n = re.search(r"(\d+)\s*(?:\+|or more)?\s*day", body, re.I)
+    n = re.search(r"(\d+)\s*(?:\+|or more)?\s*days?", body, re.I)
     base = re.search(r"\$?(\d+\.\d{2})\s*(?:base|per shipment|/shipment)", body, re.I)
     perkg = re.search(r"\$?(\d+\.\d{2})\s*(?:/kg|per kg|per kilogram)", body, re.I)
     fuel = re.search(r"(\d+(?:\.\d)?)\s*%", body)
