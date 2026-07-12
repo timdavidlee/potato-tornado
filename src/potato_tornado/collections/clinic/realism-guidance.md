@@ -36,6 +36,13 @@ update the matching line below in the same change.
   does).
 - **Days-to-pay presence.** `invoices.days_to_pay` is non-null iff `invoices.status = 'paid'`
   (an outstanding invoice has no payment latency yet); when present it is an integer in `[3, 90]`.
+- **Remittance note per denied claim.** Exactly one `remittance_notes` row exists per denied
+  invoice (`invoices.denied_amount > 0`, equivalently `claim_status = 'denied'`), joined by
+  `remittance_notes.invoice_id ∈ invoices`. Each `body` *renders* that invoice's real
+  `denied_amount` (the dollar figure immediately before "denied" / "not paid") and `payer` — no
+  re-sampling, nothing leaked — so the parsed amount equals `invoices.denied_amount` to the cent.
+  The withheld answer-key `remittance_notes.denial_reason_code ∈ {CO-197, CO-97, CO-16, CO-50,
+  CO-45}` equals the `CO-<n>` code parsed from `body`.
 
 ## Distributions & mixes (should look like the real world)
 
@@ -82,6 +89,14 @@ update the matching line below in the same change.
   has no insurer contract so it is written down least (≈ 0.95 allowed) yet collects worst (its AR
   story is separate — see below). Per-payer E[adjustment/charge] ≈ 10% / 16% / 25% / 3% and
   denial probability ≈ 5% / 8% / 15% / 3%. See `scenarios/adjudication-varies-by-payer.md`.
+- **Denial reason mix by payer.** Among denied claims, the *reason* (a CARC-style code carried
+  as the withheld `remittance_notes.denial_reason_code`, legible to a student only by parsing
+  `remittance_notes.body`) concentrates by payer: Medicaid prior-auth (CO-197) ≈ 45% vs
+  Commercial ≈ 15%; Commercial bundling (CO-97) ≈ 40% vs Medicaid ≈ 15%; Medicare documentation
+  (CO-16) ≈ 35%. Realized shares at `scale=1.0` (seed 42) sit near these weights; small per-payer
+  samples make the split starker at seed 7 / `scale=0.5`. The overall denial rate is unchanged
+  (≈ 8%) — this adds a reason, not more denials. Self-pay denials (≈ 9 rows) sit outside the
+  signal. See `scenarios/denial-reasons-in-remittance-notes.md`.
 - **Charge per visit.** Mean billed charge tracks the visit type's base charge, ≈ $90
   (Telehealth) up to ≈ $340 (Minor Procedure), with mild ±8% variation; Minor Procedure is
   ≈ 9–10% of visits but ≈ 20% of gross charges. See `scenarios/charge-varies-by-procedure.md`.
@@ -156,7 +171,10 @@ update the matching line below in the same change.
   (contractual write-down), `invoices.denied_amount`, and `invoices.claim_status` — and the
   write-down / denial rates now vary by `payer` (see the adjudication lines above). What is still
   simplified: there are no per-procedure line items and no denial→resubmission→repayment lifecycle;
-  a denied amount is simply carved off the charge in one shot.
+  a denied amount is carved off the charge in one shot. The denial *reason*, however, **is** now
+  modelled — as free-form prose in `remittance_notes.body` (a CARC-style code whose mix varies by
+  payer), not as a structured `invoices` column; see the remittance-note invariant and the
+  denial-reason-mix line above.
 - **Patient clinical attributes are uncorrelated with age.** `chronic_flag` / `risk_score` are
   drawn flat and independent of `age_band` (no age→morbidity gradient) — a deliberate
   simplification. They do, however, drive *appointment* concentration (the Clinical booking tilt

@@ -11,6 +11,7 @@ from potato_tornado.collections.clinic.tables.appointments import build_appointm
 from potato_tornado.collections.clinic.tables.invoices import build_invoices
 from potato_tornado.collections.clinic.tables.patients import build_patients
 from potato_tornado.collections.clinic.tables.providers import build_providers
+from potato_tornado.collections.clinic.tables.remittance_notes import build_remittance_notes
 from potato_tornado.collections.clinic.tables.slots import build_slots
 from potato_tornado.collections.clinic.tables.visits import build_visits
 
@@ -19,6 +20,7 @@ __all__ = [
     "build_invoices",
     "build_patients",
     "build_providers",
+    "build_remittance_notes",
     "build_slots",
     "build_visits",
 ]

@@ -1,3 +1,9 @@
+## v0.13.0 (2026-07-11)
+
+### Feat
+
+- **data-collection**: realize document-based scenario for clinic
+
 ## v0.12.0 (2026-07-11)
 
 ### Feat
