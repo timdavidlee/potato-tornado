@@ -96,7 +96,7 @@ def build() -> Collection:
             TableSpec(
                 "performance_reviews",
                 build_performance_reviews,
-                depends_on=("employees",),
+                depends_on=("employees", "departments"),
                 description="Periodic review events per employee per half-year cycle.",
             ),
             TableSpec(

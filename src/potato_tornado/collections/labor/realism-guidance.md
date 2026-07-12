@@ -71,7 +71,11 @@ update the matching line below in the same change.
   `manager_id` (so it is null exactly when they have no manager, else resolves to an employee).
   A row exists only for a half-year `cycle` (`YYYY-H1` / `YYYY-H2`) whose review date falls
   **after** `hire_date` and **before** `termination_date` (when set) — no review predates hire
-  or lands on/after a leaver's date. `rating ∈ [1, 5]` (integer).
+  or lands on/after a leaver's date. `rating ∈ [1, 5]` (integer). Each row also carries a
+  free-form `narrative` write-up that **renders that same `rating`** in prose (one of three
+  phrasings): the integer score parsed out of `narrative` equals the `rating` column for every
+  row, so the score is never re-sampled and **no answer-key column is added** (the score is the
+  parse target — see `scenarios/low-ratings-precede-attrition.md`).
 - **Expense lines belong to a project, are positive, and dated inside its run.** Every
   `expenses` row references a real project (`project_id ∈ projects`); `category ∈ {travel,
   lodging, meals, subcontractor, software}`; `amount > 0`; `incurred_date ∈ [start_date,
@@ -200,11 +204,17 @@ update the matching line below in the same change.
   4-skill practice set. `proficiency` runs beginner 0.35 / intermediate 0.45 / expert 0.20 and
   `certified` ≈0.30 — both flat org-wide rates on their own streams, independent of practice,
   role, and each other (no skill-depth-by-practice signal planted).
-- **Review-rating skew.** `performance_reviews.rating` is a mild curve centred on ~3.6
-  (Normal(3.6, 0.9) clamped and rounded to 1–5), so ratings pile at 4 then 3, thin at the tails
-  — a plausibly generous review distribution. `promoted` ≈0.10. Both are drawn independently of
-  attrition, practice, and tenure — the "low ratings precede termination" / "ratings ladder by
-  practice" cuts are future scenarios, not planted here.
+- **Review-rating skew (tilted by attrition).** `performance_reviews.rating` is a mild curve
+  clamped and rounded to 1–5, so ratings pile at 4 then 3, thin at the tails — a plausibly
+  generous review distribution centred on ~3.6 overall. Its `Normal(mean, 0.9)` *mean* is keyed
+  off attrition (leavers 3.1 / stayers 3.66), so employees who later leave the firm are rated
+  materially lower than those who stay — the planted "low ratings precede attrition" signal
+  (measured ≈2.85 leaver vs ≈3.63 stayer at seed=7, a ~0.5 gap by design; see
+  `scenarios/low-ratings-precede-attrition.md`). Leavers are only ~6% of review *rows* (they
+  accrue fewer half-year cycles before leaving), so the ~6%/94% blend preserves the ~3.6 overall
+  marginal — the same per-row-`loc` move the fixed-fee realization plant uses. `promoted` ≈0.10
+  stays flat, drawn independently of attrition. The "ratings ladder by practice" cut remains a
+  future scenario, not planted here.
 - **Expense mix.** Each project draws ~Poisson(4) expense lines; `category` runs travel 0.35 /
   meals 0.25 / lodging 0.20 / software 0.12 / subcontractor 0.08, and `amount` is a common
   lognormal (median ~$500, σ≈0.7) category-scaled — so a meal lands ~$60, lodging ~$250, travel

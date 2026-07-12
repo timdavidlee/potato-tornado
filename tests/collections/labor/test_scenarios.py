@@ -2,12 +2,28 @@
 
 from __future__ import annotations
 
+import re
+
 import polars as pl
 import pytest
 
 from potato_tornado.collections.labor.constants import ROLES
 from potato_tornado.core.config import GenerationConfig
 from potato_tornado.runner import generate
+
+# The deterministic extraction a student would run to pull the 1-5 score out of a
+# free-form review narrative — handles the three phrasing variants the generator
+# emits ("rated N out of 5" / "Scored a N" / "Rating: N/5"). Mirrors the parser in
+# scenarios/low-ratings-precede-attrition.md.
+_RATING_RE = re.compile(r"(?:rated|scored a|rating:?)\s*(\d)\s*(?:out of 5|/\s*5)?", re.I)
+
+
+def _parse_rating(narrative: str) -> int:
+    """Extract the 1-5 score written into a review narrative's prose."""
+    match = _RATING_RE.search(narrative)
+    if match is None:
+        raise AssertionError(f"no rating recoverable from narrative: {narrative!r}")
+    return int(match.group(1))
 
 
 @pytest.fixture(scope="module")
@@ -122,6 +138,46 @@ def test_fixed_fee_engagements_realize_below_time_and_materials(
     rates = dict(zip(by_type["billing_type"], by_type["rate"], strict=True))
     # Measured at seed=7, scale=0.5: T&M ≈ 0.89 vs fixed_fee ≈ 0.77 (~12pt spread).
     assert rates["time_and_materials"] - rates["fixed_fee"] > 0.06
+
+
+def test_review_narrative_rating_is_recoverable(labor: dict[str, pl.DataFrame]) -> None:
+    # Layer (a): the score parsed out of every free-form narrative equals the
+    # withheld ground-truth `rating` column, across all three template variants —
+    # proving the signal is genuinely legible from the prose with no answer leaked.
+    reviews = labor["performance_reviews"]
+    parsed = [_parse_rating(text) for text in reviews["narrative"].to_list()]
+    assert parsed == reviews["rating"].to_list()
+
+
+def test_leavers_are_rated_below_stayers(labor: dict[str, pl.DataFrame]) -> None:
+    # Layer (b): aggregate the PARSED score by whether the employee later left the
+    # firm — leavers were rated materially lower, a flight-risk gradient readable
+    # off the review history before anyone resigns.
+    reviews = labor["performance_reviews"]
+    parsed = pl.Series("parsed_rating", [_parse_rating(t) for t in reviews["narrative"].to_list()])
+    by_leaver = (
+        reviews.with_columns(parsed)
+        .join(
+            labor["employees"].select("employee_id", "termination_date"),
+            on="employee_id",
+            how="left",
+        )
+        .with_columns(pl.col("termination_date").is_not_null().alias("left_firm"))
+        .group_by("left_firm")
+        .agg(pl.col("parsed_rating").mean().alias("mean_rating"))
+    )
+    means = dict(zip(by_leaver["left_firm"], by_leaver["mean_rating"], strict=True))
+    # Measured at seed=7, scale=0.5: leavers ≈ 2.85 vs stayers ≈ 3.63 (~0.78 gap;
+    # ~0.5 by design — leavers are only ~6% of review rows, so the tilt preserves
+    # the ~3.6 overall). Parsed from prose, equal to `rating` by the test above.
+    assert means[False] - means[True] > 0.4
+
+
+def test_overall_review_rating_mean_is_preserved(labor: dict[str, pl.DataFrame]) -> None:
+    # The leaver tilt blends back to the ~3.6 headline (leavers are ~6% of review
+    # rows), so slicing by attrition is the only way to see the gap.
+    overall = labor["performance_reviews"].select(pl.col("rating").mean()).item()
+    assert abs(float(overall) - 3.6) < 0.15
 
 
 def test_engineering_dominates_overtime_hours(labor: dict[str, pl.DataFrame]) -> None:
