@@ -31,17 +31,19 @@
 - **Tables:** `cancellation_notes.body`, `cancellation_notes.reservation_id` (FK),
   `cancellation_notes.cancel_reason` (**withheld**), `reservations.rate_plan`,
   `reservations.status`, `reservations.cancellation_date`, `reservations.check_in_date`.
-- **Magnitude — to be planted.** The reason column does not exist yet; realize plants it,
-  drawn conditional on `rate_plan`, then firms up these targets:
-  - Among **BAR** cancellations: `rate_shopping` ≈ **0.60–0.70** (the dominant reason);
-    `plans_changed` ≈ 0.20; `other` ≈ 0.10–0.15.
-  - Among **Advance-Purchase** cancellations: `plans_changed` ≈ **0.60–0.75** (dominant),
-    `rate_shopping` ≤ **0.20** — the mirror image; Package / Corporate-negotiated sit between.
-  - Overall reason split ≈ `rate_shopping 0.40 / plans_changed 0.45 / other 0.15` (an emergent
-    product of the rate-plan mix among cancellations — BAR is ≈56% of them; measured
-    `scale=0.5` seed 7: 1,385 cancellations, BAR 779 / Package 230 / Corporate 200 /
-    Advance-Purchase 176).
-  - The **timing** half is already true today and needs no planting: BAR cancels ≈**10** days
+- **Magnitude — planted.** The reason is drawn conditional on `rate_plan` in
+  `build_cancellation_notes` (`_REASON_WEIGHTS_BY_PLAN`). Measured at `scale=0.5`, seed 21
+  (the scenario-test fixture): **1,470 notes** (BAR 826 / Package 272 / Advance-Purchase 195
+  / Corporate-negotiated 177):
+  - Among **BAR** cancellations: `rate_shopping` ≈ **0.63** (the dominant reason);
+    `plans_changed` ≈ 0.20; `other` ≈ 0.16.
+  - Among **Advance-Purchase** cancellations: `plans_changed` ≈ **0.67** (dominant),
+    `rate_shopping` ≈ **0.17** (≤ 0.20) — the mirror image. Package (`rate_shopping` ≈ 0.46)
+    and Corporate-negotiated (`plans_changed` ≈ 0.54) sit between.
+  - Overall reason split ≈ `rate_shopping 0.50 / plans_changed 0.34 / other 0.16` — an emergent
+    product of the rate-plan mix among cancellations (BAR is ≈56% of them, so its
+    rate_shopping tilt dominates the pooled total).
+  - The **timing** half is already true today and needs no planting: BAR cancels ≈**11** days
     out (window fraction ≈0.62), Advance-Purchase ≈**23** days out (≈0.23).
 
 `status = 'cancelled'` and `cancellation_date` already tell you *that* and *when* a booking
@@ -94,9 +96,9 @@ mix = (
     .with_columns(share=pl.col("len") / pl.col("len").sum().over("rate_plan"))
     .sort("rate_plan", "reason")
 )
-# expected (to be planted):
-#   BAR              -> rate_shopping ~0.60-0.70   (dominant)
-#   Advance-Purchase -> plans_changed ~0.60-0.75   (dominant), rate_shopping <= 0.20
+# expected (measured, scale=0.5 seed 21):
+#   BAR              -> rate_shopping ~0.63   (dominant)
+#   Advance-Purchase -> plans_changed ~0.67   (dominant), rate_shopping ~0.17 (<= 0.20)
 ```
 
 ```sql

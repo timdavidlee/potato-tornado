@@ -157,3 +157,100 @@ def test_revpar_climbs_up_room_class_ladder(hotel: dict[str, pl.DataFrame]) -> N
     assert (
         rp[0] < rp[1] < rp[2] < rp[3] and occ["Standard"] > occ["Penthouse"] and rp[3] > 2.5 * rp[0]
     )
+
+
+# --- Document scenario: cancellation notes reveal price-shopping -----------------------
+# The reason a booking cancelled lives only in the free-form ``cancellation_notes.body``.
+# The student must parse it back out and reconcile it against the reservation. These are
+# the *same* deterministic extraction the scenario doc hands out, mirrored here.
+# See scenarios/cancellation-notes-reveal-price-shopping.md.
+
+_RATE_WORDS = ("cheaper rate", "better rate", "lower rate", "rate dropped", "price", "deal")
+_PLAN_WORDS = (
+    "trip cancelled",
+    "plans changed",
+    "rescheduled",
+    "emergency",
+    "flight",
+    "no longer travel",
+    "postponed",
+)
+
+
+def _bucket_reason(body: str) -> str:
+    """Rule-parse a note body into {rate_shopping, plans_changed, other}."""
+    low = body.lower()
+    if any(w in low for w in _RATE_WORDS):
+        return "rate_shopping"
+    if any(w in low for w in _PLAN_WORDS):
+        return "plans_changed"
+    return "other"
+
+
+@pytest.fixture(scope="module")
+def parsed_notes(hotel: dict[str, pl.DataFrame]) -> pl.DataFrame:
+    """Each note parsed back into (res id, days-before-arrival, reason) and joined to
+    its reservation's rate plan and real dates — the student's extraction step."""
+    res = hotel["reservations"].select(
+        "reservation_id", "rate_plan", "check_in_date", "cancellation_date"
+    )
+    return (
+        hotel["cancellation_notes"]
+        .with_columns(
+            parsed_res_id=pl.col("body").str.extract(r"(RES-\d{7})"),
+            parsed_days_before=pl.col("body")
+            .str.extract(r"(\d+)\s+days?\s+before\s+arrival", 1)
+            .cast(pl.Int64),
+            parsed_reason=pl.col("body").map_elements(_bucket_reason, return_dtype=pl.Utf8),
+        )
+        .join(res, on="reservation_id")
+        .with_columns(
+            true_days_before=(pl.col("check_in_date") - pl.col("cancellation_date")).dt.total_days()
+        )
+    )
+
+
+def _reason_share(df: pl.DataFrame, rate_plan: str, reason: str) -> float:
+    plan = df.filter(pl.col("rate_plan") == rate_plan)
+    return plan.filter(pl.col("parsed_reason") == reason).height / plan.height
+
+
+def test_parsed_reservation_id_round_trips_from_prose(parsed_notes: pl.DataFrame) -> None:
+    mismatches = parsed_notes.filter(pl.col("parsed_res_id") != pl.col("reservation_id")).height
+    assert mismatches == 0
+
+
+def test_parsed_days_before_round_trips_to_reservation_dates(parsed_notes: pl.DataFrame) -> None:
+    # No leak: the days-before-arrival in the prose is exactly check_in - cancellation_date.
+    mismatches = parsed_notes.filter(
+        pl.col("parsed_days_before") != pl.col("true_days_before")
+    ).height
+    assert mismatches == 0
+
+
+def test_parsed_reason_round_trips_to_withheld_answer_key(parsed_notes: pl.DataFrame) -> None:
+    # The reason bucketed from the prose reconciles against the withheld cancel_reason key.
+    mismatches = parsed_notes.filter(pl.col("parsed_reason") != pl.col("cancel_reason")).height
+    assert mismatches == 0
+
+
+def test_bar_cancellations_predominantly_cite_rate_shopping(parsed_notes: pl.DataFrame) -> None:
+    # Planted 0.60-0.70; measured ~0.63 (seed 21, scale 0.5).
+    share = _reason_share(parsed_notes, "BAR", "rate_shopping")
+    assert 0.57 < share < 0.72
+
+
+def test_advance_purchase_cancellations_predominantly_cite_plan_change(
+    parsed_notes: pl.DataFrame,
+) -> None:
+    # Planted 0.60-0.75; measured ~0.67 (seed 21, scale 0.5).
+    share = _reason_share(parsed_notes, "Advance-Purchase", "plans_changed")
+    assert 0.57 < share < 0.76
+
+
+def test_rate_shopping_concentrates_in_the_refundable_bar_rate(parsed_notes: pl.DataFrame) -> None:
+    # The teaching point: price-shopping is a refundable-rate phenomenon. BAR's
+    # rate_shopping share (≈0.63) dwarfs non-refundable Advance-Purchase's (≈0.17).
+    bar = _reason_share(parsed_notes, "BAR", "rate_shopping")
+    advance_purchase = _reason_share(parsed_notes, "Advance-Purchase", "rate_shopping")
+    assert bar > 2.5 * advance_purchase
