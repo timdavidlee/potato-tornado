@@ -1,6 +1,6 @@
 [project]
 name = "potato-tornado"
-version = "0.4.0"
+version = "0.5.0"
 description = "Synthetic dataset generators for teaching, backed by DuckDB / Postgres."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -85,7 +85,7 @@ addopts = "-ra --strict-markers"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.4.0"
+version = "0.5.0"
 version_files = ["pyproject.toml:^version"]
 tag_format = "v$version"
 update_changelog_on_bump = true

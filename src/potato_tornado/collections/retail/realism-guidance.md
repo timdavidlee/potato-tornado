@@ -51,11 +51,13 @@ update the matching line below in the same change.
   \$55 / home \$26 / consumables \$8), clamped to [\$1, \$500]. Overall median ≈ **\$23**, a
   long premium tail. Cents are continuous (not charm-priced) and prices don't cluster on
   round numbers; ~0.96 of SKUs carry a distinct price (no lattice).
-- **cost (`products`).** `round(unit_price × (1 − margin), 2)` where `margin` is a **flat**,
-  category-independent Normal(0.45, 0.05) clamped to [0.05, 0.90] — so gross margin averages
-  ≈ **0.45** and is roughly equal across categories, and `0 < cost < unit_price` always. The
-  per-category margin gradient (electronics thin / apparel fat, inverting the return-rate
-  gradient) is a **deferred scenario**, deliberately not planted here.
+- **cost (`products`).** `round(unit_price × (1 − margin), 2)` where `margin` is drawn from a
+  **per-category mean** (apparel ≈ 0.58 / home ≈ 0.45 / consumables ≈ 0.42 / electronics ≈
+  0.28) with a small within-category Normal sd ≈ 0.05, clamped to [0.05, 0.90] — so
+  `0 < cost < unit_price` always and gross margin runs **against** the return-rate gradient
+  (apparel is both highest-return and fattest-margin; electronics thinnest). Overall gross
+  margin averages ≈ **0.46**. A ~30-point apparel→electronics spread. See
+  `scenarios/margin-differs-by-category.md`.
 - **product_name.** `adjective × per-category qualifier × noun` (12 × 6 × 6 ≈ 432 combos per
   category), so duplicate names are rare — ≈ **0.95** of the 500 SKUs carry a distinct name. A
   synthetic label for joins, not a real SKU master.
@@ -158,10 +160,8 @@ update the matching line below in the same change.
   (slicing practice, not planted signals). `products.brand` is uniform *within* category, so
   it inherits the category gradient rather than adding one, and `products.weight_kg` is a
   category-keyed covariate not yet wired into shipping cost or damage-in-transit returns.
-  `products.cost` uses a flat category-independent margin (the margin-inverts-the-return-gradient
-  subset signal is a deferred scenario), and `order_items.discount_pct` is a flat markdown drawn
-  independently of product / basket / return behaviour (the discounted-orders-return-more subset
-  signal is likewise deferred).
+  `order_items.discount_pct` is a flat markdown drawn independently of product / basket /
+  return behaviour (the discounted-orders-return-more subset signal is a deferred scenario).
 
 ## How to review
 
@@ -186,6 +186,11 @@ from order_items oi
 join products p using (product_id)
 left join returns r using (order_item_id)
 group by p.category order by return_rate;
+
+-- gross margin by category runs against the return gradient: apparel ~0.58 (fattest AND
+-- highest-return) → electronics ~0.28 (thinnest); home ~0.44 / consumables ~0.42 in between
+select category, avg((unit_price - cost) / unit_price) as gross_margin
+from products group by category order by gross_margin desc;
 
 -- Q4 seasonality: Nov+Dec carry ~0.31 of a year's orders (a flat calendar gives ~0.167)
 select sum(case when extract(month from order_date) in (11, 12) then 1 else 0 end)::float

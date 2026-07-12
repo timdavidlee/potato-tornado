@@ -7,8 +7,10 @@
 - **Tables:** `claims.policy_id`, `claims.reported_amount`,
   `claim_payments.paid_amount`, `policies.policy_id`.
 - **Magnitude:** ≈ **11%** of policies file ≥1 claim; `reported_amount` median ≈
-  **\$6.4k**, p95 ≈ **\$30k**, max past **\$50k** (a lognormal with σ ≈ 1.0). The
-  mean sits well above the median — the hallmark of the fat tail.
+  **\$6.7k**, p95 ≈ **\$31k**, max past **\$50k** (a base lognormal with σ ≈ 1.0, whose
+  median/p95 the ×2.2 litigation loading on the ~11% litigated claims nudges up a few
+  points from ≈\$6.4k — see `scenarios/litigation-tax.md`). The mean sits well above the
+  median — the hallmark of the fat tail.
 
 Claim frequency is a per-policy `Poisson(λ × term_years)` with λ set by the holder's
 risk tier, so most policies contribute zero claims; severity is an independent
@@ -25,8 +27,8 @@ select count(distinct c.policy_id)::float / (select count(*) from policies) as c
 from claims c;
 
 -- severity: heavy right tail (mean >> median), long p95/max
-select quantile_cont(reported_amount, 0.5)  as p50,   -- ≈ 6400
-       quantile_cont(reported_amount, 0.95) as p95,   -- ≈ 30000
+select quantile_cont(reported_amount, 0.5)  as p50,   -- ≈ 6700
+       quantile_cont(reported_amount, 0.95) as p95,   -- ≈ 31000
        max(reported_amount)                  as max_,  -- past 50000
        avg(reported_amount)                  as mean_  -- well above p50
 from claims;

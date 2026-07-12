@@ -25,10 +25,15 @@ _BOOKING_CHANNELS = ["phone", "portal", "walk_in", "referral"]
 _BOOKING_CHANNEL_WEIGHTS = [0.40, 0.35, 0.10, 0.15]
 
 # Appointment reminder. ~70% of bookings get a reminder; when sent it goes out over
-# one channel (else the channel is null). Deliberately flat — it does NOT lower the
-# no-show rate here; the reminder->attendance lift is a scenario, left unplanted.
+# one channel (else the channel is null). The reminder is the clinic's one controllable
+# no-show lever: a sent reminder scales the per-appointment no-show hazard down, an
+# unsent one scales it up, so reminded appointments no-show far less. The two factors
+# are multiplicative on the lead-time/visit-type hazard (they preserve, not replace,
+# those gradients) and balanced across the ≈70/30 sent/unsent split so the marginal
+# no-show rate stays ≈ 12%. See ``scenarios/reminders-reduce-no-shows.md``.
 _REMINDER_CHANNELS = ["sms", "email"]
 _REMINDER_CHANNEL_WEIGHTS = [0.6, 0.4]
+_REMINDER_NO_SHOW_FACTOR = {True: 0.68, False: 1.55}
 
 # Lifecycle hazards. A booked slot is first checked for "still on the books"
 # (scheduled), then "called off ahead of time" (cancelled); whatever survives is
@@ -63,11 +68,13 @@ def build_appointments(ctx: GenContext) -> pl.DataFrame:
 
     lead_days = np.clip(ctx.dist.lognormal(n, median=10, sigma=0.8), 0, 120).astype(int)
     visit_type = _draw_visit_types(ctx, booked["provider_id"])
-    status = _assign_status(ctx, lead_days, visit_type)
+    # Drawn from its own name-keyed child stream, so measuring it before status keeps
+    # every other draw (including status's base-stream uniforms) unchanged.
+    reminder_sent = Distributions(ctx.rng.child("reminder_sent")).bernoulli(n, p=0.7)
+    status = _assign_status(ctx, lead_days, visit_type, reminder_sent)
     booking_channel = Distributions(ctx.rng.child("booking_channel")).choice(
         n, _BOOKING_CHANNELS, _BOOKING_CHANNEL_WEIGHTS
     )
-    reminder_sent = Distributions(ctx.rng.child("reminder_sent")).bernoulli(n, p=0.7)
     channel_draw = Distributions(ctx.rng.child("reminder_channel")).choice(
         n, _REMINDER_CHANNELS, _REMINDER_CHANNEL_WEIGHTS
     )
@@ -140,19 +147,32 @@ def _draw_patients(ctx: GenContext, patients: list[str], n: int) -> np.ndarray:
     return stream.choice(np.asarray(patients, dtype=object), size=n, p=weights)
 
 
-def _no_show_prob(lead_days: np.ndarray, visit_type: np.ndarray) -> np.ndarray:
-    """Per-appointment no-show probability: rises with lead time, shifted by visit type.
+def _no_show_prob(
+    lead_days: np.ndarray, visit_type: np.ndarray, reminder_sent: np.ndarray
+) -> np.ndarray:
+    """Per-appointment no-show probability: rises with lead time, shifted by visit type,
+    then scaled by whether a reminder was sent.
 
     Short-notice bookings are rarely missed; the further out a slot is booked, the
     more likely the patient no-shows. New Patient visits carry an additional
-    baseline risk on top of that. Tuned so the marginal no-show rate lands at
-    ≈ 12% given the lead-time distribution (median ≈ 10 days) and visit-type mix.
+    baseline risk on top of that. A sent reminder then multiplies the whole hazard
+    down (unsent multiplies it up), so the reminder lift rides on top of — rather
+    than flattens — the lead-time and visit-type gradients. Tuned so the marginal
+    no-show rate lands at ≈ 12% (reminded ≈ 8-9% vs un-reminded ≈ 18-20%) given the
+    lead-time distribution (median ≈ 10 days), visit-type mix, and ≈ 70% reminder share.
     """
     offset = np.array([_NO_SHOW_TYPE_OFFSET[v] for v in visit_type])
-    return np.clip(0.09 + 0.004 * lead_days + offset, 0.03, 0.32)
+    base = np.clip(0.09 + 0.004 * lead_days + offset, 0.03, 0.32)
+    factor = np.array([_REMINDER_NO_SHOW_FACTOR[bool(s)] for s in reminder_sent])
+    # Scale the (already-clipped) lead-time/visit-type envelope by the reminder factor,
+    # so the reminder lift rides multiplicatively on top without reshaping that envelope
+    # — the outer [0, 1] is a pure probability guard (the product stays well inside it).
+    return np.clip(base * factor, 0.0, 1.0)
 
 
-def _assign_status(ctx: GenContext, lead_days: np.ndarray, visit_type: np.ndarray) -> np.ndarray:
+def _assign_status(
+    ctx: GenContext, lead_days: np.ndarray, visit_type: np.ndarray, reminder_sent: np.ndarray
+) -> np.ndarray:
     n = lead_days.shape[0]
     u_scheduled = ctx.rng.numpy.random(n)
     u_cancelled = ctx.rng.numpy.random(n)
@@ -160,7 +180,11 @@ def _assign_status(ctx: GenContext, lead_days: np.ndarray, visit_type: np.ndarra
 
     is_scheduled = u_scheduled < _P_SCHEDULED
     is_cancelled = ~is_scheduled & (u_cancelled < _P_CANCELLED)
-    is_no_show = ~is_scheduled & ~is_cancelled & (u_no_show < _no_show_prob(lead_days, visit_type))
+    is_no_show = (
+        ~is_scheduled
+        & ~is_cancelled
+        & (u_no_show < _no_show_prob(lead_days, visit_type, reminder_sent))
+    )
 
     status = np.full(n, "completed", dtype=object)
     status[is_scheduled] = "scheduled"

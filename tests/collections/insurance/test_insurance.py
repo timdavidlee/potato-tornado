@@ -92,11 +92,17 @@ def test_paid_date_is_on_or_after_claim_date(insurance: dict[str, pl.DataFrame])
 
 
 def test_settlement_days_within_bounds(insurance: dict[str, pl.DataFrame]) -> None:
-    # settlement_days is the derived (paid_date minus claim_date) delay, drawn as a 5-to-45
-    # day integer, so every value sits in [5, 45].
+    # settlement_days is the derived (paid_date minus claim_date) delay: a 5-to-45 day
+    # integer draw, stretched ~1.75x on litigated claims (the litigation cycle-time tax —
+    # see scenarios/litigation-tax.md). So non-litigated values stay in [5, 45] and
+    # litigated ones extend up to round(45 * 1.75) = 79.
     days = pl.col("settlement_days")
-    out_of_range = insurance["claim_payments"].filter((days < 5) | (days > 45))
-    assert out_of_range.height == 0
+    joined = insurance["claim_payments"].join(
+        insurance["claims"].select("claim_id", "litigated"), on="claim_id"
+    )
+    non_litigated_out = joined.filter(~pl.col("litigated") & ((days < 5) | (days > 45)))
+    litigated_out = joined.filter(pl.col("litigated") & ((days < 5) | (days > 79)))
+    assert non_litigated_out.height == 0 and litigated_out.height == 0
 
 
 def test_subrogation_recovery_only_on_not_at_fault(insurance: dict[str, pl.DataFrame]) -> None:

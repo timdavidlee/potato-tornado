@@ -108,3 +108,21 @@ def test_claim_frequency_flat_despite_rising_counts(insurance: dict[str, pl.Data
     raw_ramp = raw[-1] / raw[0]
     freq_spread = max(cpif) / min(cpif)
     assert raw_ramp > 1.4 and freq_spread < 1.25
+
+
+def test_litigated_claims_cost_more_and_settle_slower(insurance: dict[str, pl.DataFrame]) -> None:
+    joined = insurance["claim_payments"].join(
+        insurance["claims"].select("claim_id", "litigated"), on="claim_id"
+    )
+    lit = joined.filter(pl.col("litigated"))
+    non = joined.filter(~pl.col("litigated"))
+    paid_ratio = cast(float, lit["paid_amount"].mean()) / cast(float, non["paid_amount"].mean())
+    cycle_ratio = cast(float, lit["settlement_days"].mean()) / cast(
+        float, non["settlement_days"].mean()
+    )
+    # The litigation tax is two-dimensional: the litigated subset runs a heavier paid_amount
+    # AND a longer settlement cycle than non-litigated peers. Measured at seed=7 scale=0.5:
+    # paid ≈ 1.87x, settlement ≈ 1.69x. Both clearly clear the flat ~1.0 baseline; the bounds
+    # stay loose enough for the small litigated subset's seed noise, tight enough to catch a
+    # regression back to flat.
+    assert paid_ratio > 1.4 and cycle_ratio > 1.35

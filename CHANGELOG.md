@@ -1,3 +1,9 @@
+## v0.5.0 (2026-07-11)
+
+### Feat
+
+- **data-collection**: plant 6 needs-planting scenario signals across collections
+
 ## v0.4.0 (2026-07-11)
 
 ### Feat

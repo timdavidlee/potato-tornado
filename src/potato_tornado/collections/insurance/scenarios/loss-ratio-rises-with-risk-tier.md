@@ -6,10 +6,13 @@
   underwriting-negative relative to preferred.
 - **Tables:** `claim_payments.paid_amount`, `policies.annual_premium`,
   `policyholders.risk_tier` (join `payments → claims → policies → policyholders`).
-- **Magnitude:** overall loss ratio ≈ **0.61**; by tier ≈ **preferred 0.43 /
-  standard 0.60 / high_risk 0.85** — the high-risk book runs ~2× the preferred loss
+- **Magnitude:** overall loss ratio ≈ **0.65**; by tier ≈ **preferred 0.46 /
+  standard 0.63 / high_risk 0.90** — the high-risk book runs ~2× the preferred loss
   ratio. (Per-tier ratios carry ±0.15 seed-to-seed noise and the standard→high_risk step
-  can narrow or invert on a given run; preferred < high_risk is robust.)
+  can narrow or invert on a given run; preferred < high_risk is robust. These sit a few
+  points above a litigation-free book: the ~11% litigated claims pay ≈1.8× and lift every
+  tier roughly uniformly, so the tier *ordering* is untouched — see
+  `scenarios/litigation-tax.md`.)
 
 Risk tier drives two knobs in opposite-sized steps: the premium multiplier (0.70 /
 1.00 / 1.75) and the annual claim rate λ (0.09 / 0.18 / 0.42). Frequency rises ~4.7×
@@ -23,7 +26,7 @@ tier — the classic plan-vs-actual read on an insurance book.
 
 ```sql
 select ph.risk_tier,
-       sum(pay.paid_amount) / sum_prem.prem as loss_ratio   -- ≈ 0.43 / 0.60 / 0.85 (±0.15 noise)
+       sum(pay.paid_amount) / sum_prem.prem as loss_ratio   -- ≈ 0.46 / 0.63 / 0.90 (±0.15 noise)
 from claim_payments pay
 join claims c        using (claim_id)
 join policies p      using (policy_id)

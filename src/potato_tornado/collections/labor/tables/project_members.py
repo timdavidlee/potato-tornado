@@ -18,6 +18,18 @@ import polars as pl
 from potato_tornado.collections.labor.constants import REMOTE_RATE_BY_LOCATION, ROLES
 from potato_tornado.core.collection import GenContext
 
+# Realized bill rate (bill_rate ÷ standard_bill_rate) centres below the list rate,
+# but not uniformly across the commercial model: on a fixed-fee engagement the firm
+# absorbs scope overruns, so the effective realized rate erodes; on time & materials
+# every hour is billed at rate; a retainer sits in between. Keyed off the project's
+# billing_type — see scenarios/fixed-fee-engagements-realize-lower.md. The weights
+# blend (T&M 0.55 / fixed_fee 0.30 / retainer 0.15) back to the ~0.85 firm-wide mean.
+_REALIZATION_MEAN_BY_BILLING = {
+    "time_and_materials": 0.89,
+    "retainer": 0.85,
+    "fixed_fee": 0.78,
+}
+
 
 def build_project_members(ctx: GenContext) -> pl.DataFrame:
     projects = ctx.table("projects")
@@ -47,6 +59,8 @@ def build_project_members(ctx: GenContext) -> pl.DataFrame:
     proj_start = dict(zip(proj_ids, projects["start_date"].to_list(), strict=True))
     proj_end = dict(zip(proj_ids, projects["target_end_date"].to_list(), strict=True))
     proj_status = dict(zip(proj_ids, projects["status"].to_list(), strict=True))
+    # Commercial model per project, to key each membership's realized bill rate.
+    proj_billing = dict(zip(proj_ids, projects["billing_type"].to_list(), strict=True))
     # Team sizes vary; at least 2 so every project has a lead and a contributor.
     team_sizes = np.clip(ctx.dist.poisson(len(proj_ids), 6.0), 2, None)
 
@@ -91,10 +105,15 @@ def build_project_members(ctx: GenContext) -> pl.DataFrame:
     allocation = ctx.dist.choice(n, ["25", "50", "75", "100"], [0.15, 0.3, 0.2, 0.35]).astype(int)
     # Negotiated rate the member is billed at on this project = their standard rate
     # times a realization discount (< 1), but only for client-billable members —
-    # non-billable (bench / overhead) members carry a null bill rate. A flat discount
-    # off a dedicated child stream — the depressed-realization-by-billing-type signal
-    # is a future scenario.
-    realization = np.clip(ctx.rng.child("realization").numpy.normal(0.85, 0.06, size=n), 0.6, 1.0)
+    # non-billable (bench / overhead) members carry a null bill rate. The discount's
+    # centre depends on the project's billing_type (fixed_fee realizes lower than
+    # T&M — see scenarios/fixed-fee-engagements-realize-lower.md); the per-row loc
+    # array feeds the same dedicated child stream (same draw count, so determinism
+    # holds) and the clamp keeps every rate in the [0.6, 1.0] x list-rate band.
+    realization_mean = np.array([_REALIZATION_MEAN_BY_BILLING[proj_billing[p]] for p in rows_proj])
+    realization = np.clip(
+        ctx.rng.child("realization").numpy.normal(realization_mean, 0.06, size=n), 0.6, 1.0
+    )
     bill_rate = [
         round(emp_bill[e] * float(r), 2) if emp_is_billable[e] else None
         for e, r in zip(rows_emp, realization, strict=True)

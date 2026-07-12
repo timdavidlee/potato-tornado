@@ -28,6 +28,22 @@ _PAYER_NAMES = [p[0] for p in PAYERS]
 _PAYER_WEIGHTS = [p[1] for p in PAYERS]
 _PAID_IN_FULL_PROB = {p[0]: p[2] for p in PAYERS}
 
+# Per-payer claim adjudication. Contractual write-downs and denials both deepen as you
+# move Commercial → Medicare → Medicaid (tighter fee schedules, more denials), so the
+# realised reimbursement ``allowed / charge`` is lowest for Medicaid; self-pay has no
+# insurer contract, so it is written down least (yet collects worst — that AR story is
+# the separate ``revenue-and-ar`` signal). Each row is
+#   (adjustment_present_prob, adjustment_frac_mean, denial_prob)
+# where ``present_prob x frac_mean`` is E[adjustment / charge]. Payer-weighted these hold
+# the flat marginals (adjustment ≈ 14% of charge, denial ≈ 8%). See
+# ``scenarios/adjudication-varies-by-payer.md``.
+_PAYER_ADJUDICATION = {
+    "Commercial": (0.85, 0.118, 0.05),
+    "Medicare": (0.90, 0.178, 0.08),
+    "Medicaid": (0.92, 0.261, 0.15),
+    "Self-pay": (0.25, 0.120, 0.03),
+}
+
 
 def build_invoices(ctx: GenContext) -> pl.DataFrame:
     visits = ctx.table("visits")
@@ -58,7 +74,7 @@ def build_invoices(ctx: GenContext) -> pl.DataFrame:
         dtype=object,
     )
 
-    adjustment_amount, denied_amount, claim_status = _adjudication_split(ctx, charge)
+    adjustment_amount, denied_amount, claim_status = _adjudication_split(ctx, charge, payer)
 
     return pl.DataFrame(
         {
@@ -79,26 +95,32 @@ def build_invoices(ctx: GenContext) -> pl.DataFrame:
 
 
 def _adjudication_split(
-    ctx: GenContext, charge: np.ndarray
+    ctx: GenContext, charge: np.ndarray, payer: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Make the payer-adjudication funnel visible: charge → allowed → paid → patient balance.
 
     A contractual ``adjustment_amount`` (write-down) and an occasional ``denied_amount`` are
     carved off the ``charge`` so ``allowed = charge - adjustment_amount - denied_amount`` is
-    recoverable. Both are FLAT, payer-independent draws on their own child streams (the
-    fraction caps guarantee ``adjustment_amount + denied_amount ≤ charge``, so allowed ≥ 0);
-    the *payer-varying* denial rate is a deferred scenario, not planted here. ``claim_status``
-    is derived: ``denied`` if any amount was denied, else ``adjusted`` if written down, else
-    ``clean``.
+    recoverable. The write-down presence/size and the denial rate are keyed off ``payer`` via
+    ``_PAYER_ADJUDICATION`` — Medicaid writes down and denies most, self-pay least — so
+    ``allowed / charge`` falls Commercial → Medicare → Medicaid; the per-payer fraction caps
+    keep ``adjustment_amount + denied_amount ≤ charge``, so allowed ≥ 0. Draws come from the
+    same per-quantity child streams as before (only the per-row parameters now vary by payer),
+    and ``claim_status`` is derived: ``denied`` if any amount was denied, else ``adjusted`` if
+    written down, else ``clean``. See ``scenarios/adjudication-varies-by-payer.md``.
     """
     n = charge.shape[0]
-    has_adjustment = Distributions(ctx.rng.child("has_adjustment")).bernoulli(n, p=0.85)
-    adj_frac = Distributions(ctx.rng.child("adjustment_frac")).clamped_normal(
-        n, mean=0.14, sd=0.05, low=0.02, high=0.35
+    present_p = np.array([_PAYER_ADJUDICATION[p][0] for p in payer])
+    adj_frac_mean = np.array([_PAYER_ADJUDICATION[p][1] for p in payer])
+    denial_p = np.array([_PAYER_ADJUDICATION[p][2] for p in payer])
+
+    has_adjustment = ctx.rng.child("has_adjustment").numpy.random(n) < present_p
+    adj_frac = np.clip(
+        ctx.rng.child("adjustment_frac").numpy.normal(adj_frac_mean, 0.05), 0.02, 0.35
     )
     adjustment_amount = np.where(has_adjustment, np.round(charge * adj_frac, 2), 0.0)
 
-    is_denied = Distributions(ctx.rng.child("denied")).bernoulli(n, p=0.08)
+    is_denied = ctx.rng.child("denied").numpy.random(n) < denial_p
     denied_frac = Distributions(ctx.rng.child("denied_frac")).clamped_normal(
         n, mean=0.25, sd=0.10, low=0.05, high=0.60
     )

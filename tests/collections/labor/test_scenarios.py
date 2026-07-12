@@ -52,6 +52,29 @@ def test_night_no_show_rate_exceeds_day_rate(labor: dict[str, pl.DataFrame]) -> 
     assert rates["night"] > 2 * day_rate
 
 
+def test_short_notice_shifts_no_show_more_than_well_planned(labor: dict[str, pl.DataFrame]) -> None:
+    joined = (
+        labor["assignments"]
+        .join(labor["shifts"].select(["shift_id", "planned_start"]), on="shift_id", how="left")
+        .join(
+            labor["time_entries"].select(["assignment_id", "no_show"]),
+            on="assignment_id",
+            how="left",
+        )
+        .with_columns(
+            ((pl.col("planned_start") - pl.col("assigned_at")).dt.total_seconds() / 86400).alias(
+                "lead_days"
+            )
+        )
+    )
+    short = joined.filter(pl.col("lead_days") < 3)["no_show"]
+    well_planned = joined.filter(pl.col("lead_days") >= 7)["no_show"]
+    short_rate = float(short.sum()) / short.len()
+    well_planned_rate = float(well_planned.sum()) / well_planned.len()
+    # Measured at seed=7, scale=0.5: short-notice ~8.1% vs well-planned ~2.8% (~2.9x lift).
+    assert short_rate > 2 * well_planned_rate
+
+
 def test_satellite_projects_run_more_off_site_than_the_hub(labor: dict[str, pl.DataFrame]) -> None:
     by_city = (
         labor["project_members"]
@@ -74,6 +97,31 @@ def test_satellite_projects_run_more_off_site_than_the_hub(labor: dict[str, pl.D
     rates = dict(zip(by_city["project_city"], by_city["rate"], strict=True))
     satellite_rate = max(rates["Atlanta"], rates["Denver"])
     assert satellite_rate > 2 * rates["New York"]
+
+
+def test_fixed_fee_engagements_realize_below_time_and_materials(
+    labor: dict[str, pl.DataFrame],
+) -> None:
+    by_type = (
+        labor["project_members"]
+        .filter(pl.col("bill_rate").is_not_null())
+        .join(
+            labor["projects"].select(["project_id", "billing_type"]),
+            on="project_id",
+            how="left",
+        )
+        .join(
+            labor["employees"].select(["employee_id", "standard_bill_rate"]),
+            on="employee_id",
+            how="left",
+        )
+        .with_columns((pl.col("bill_rate") / pl.col("standard_bill_rate")).alias("realization"))
+        .group_by("billing_type")
+        .agg(pl.col("realization").mean().alias("rate"))
+    )
+    rates = dict(zip(by_type["billing_type"], by_type["rate"], strict=True))
+    # Measured at seed=7, scale=0.5: T&M ≈ 0.89 vs fixed_fee ≈ 0.77 (~12pt spread).
+    assert rates["time_and_materials"] - rates["fixed_fee"] > 0.06
 
 
 def test_engineering_dominates_overtime_hours(labor: dict[str, pl.DataFrame]) -> None:
