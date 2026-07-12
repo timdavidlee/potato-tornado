@@ -6,8 +6,10 @@ median shifts by category (electronics dear, consumables cheap). Names are synth
 master, but the qualifier widens the name space enough that duplicates are rare. Each
 product also carries a ``brand`` (drawn from a per-category house catalog) and a
 lognormal ``weight_kg`` (a shipping-cost covariate), both category-keyed. ``cost`` is
-``unit_price x (1 - margin)`` with a **flat** (category-independent) ~0.45 margin, so
-``0 < cost < unit_price`` always; a per-category margin gradient is a deferred scenario.
+``unit_price x (1 - margin)`` where the margin **mean shifts by category** (apparel fat
+~0.58, electronics thin ~0.28, home/consumables mid), so ``0 < cost < unit_price`` always
+and gross margin runs *against* the return-rate gradient — see
+``scenarios/margin-differs-by-category.md``.
 """
 
 from __future__ import annotations
@@ -57,10 +59,12 @@ _WEIGHT_SIGMA = 0.5
 _WEIGHT_MIN = 0.05
 _WEIGHT_MAX = 30.0
 
-# Gross margin (single-table literal): a flat ~0.45 with small jitter, drawn the same
-# way for every category (no per-category gradient — that would be a planted scenario).
-# Clamped to (0, 1) so `cost = unit_price x (1 - margin)` always satisfies 0 < cost < price.
-_MARGIN_MEAN = 0.45
+# Gross margin (single-table literal): a per-category mean with small jitter. Soft goods
+# (apparel) carry fat markups and consumables/home sit mid; consumer electronics runs
+# thin — a gradient that runs *against* the return-rate gradient (apparel is both the
+# highest-return and the fattest-margin category). Clamped to (0, 1) so
+# `cost = unit_price x (1 - margin)` always satisfies 0 < cost < price.
+_MARGIN_MEAN = {"apparel": 0.58, "electronics": 0.28, "home": 0.45, "consumables": 0.42}
 _MARGIN_SIGMA = 0.05
 _MARGIN_MIN = 0.05
 _MARGIN_MAX = 0.90
@@ -117,10 +121,12 @@ def build_products(ctx: GenContext) -> pl.DataFrame:
         2,
     )
 
-    # Cost: a flat category-independent margin (independent child stream, so it doesn't
-    # shift the draws above). Clamped margin ∈ [0.05, 0.90] keeps 0 < cost < unit_price.
+    # Cost: a per-category margin mean with small jitter (independent child stream, so it
+    # doesn't shift the draws above). Soft goods run fat, electronics thin — against the
+    # return gradient. Clamped margin ∈ [0.05, 0.90] keeps 0 < cost < unit_price.
+    margin_mean = np.array([_MARGIN_MEAN[c] for c in category])
     margin = np.clip(
-        ctx.rng.child("margin").numpy.normal(_MARGIN_MEAN, _MARGIN_SIGMA, n),
+        ctx.rng.child("margin").numpy.normal(margin_mean, _MARGIN_SIGMA, n),
         _MARGIN_MIN,
         _MARGIN_MAX,
     )

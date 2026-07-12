@@ -1,15 +1,19 @@
 # Night shifts drive the no-show rate
 
-- **Signal:** no-shows run at ~4% overall, but the rate is not uniform across the
+- **Signal:** no-shows run at ~4.6% overall, but the rate is not uniform across the
   day — **night shifts are missed far more often** than morning or afternoon ones.
-  The headline 4% is a blend of a low daytime rate and a much higher night rate.
+  The headline rate is a blend of a low daytime rate and a much higher night rate.
 - **Tables:** `time_entries.no_show`, `shifts.shift_window` (join on `shift_id`)
-- **Magnitude:** night ≈ **8%** vs morning/afternoon ≈ **2%** — roughly a **4×**
-  spread — while the marginal no-show rate across all entries stays ≈ 4%.
+- **Magnitude:** night ≈ **8%** vs morning/afternoon ≈ **2%** window base — roughly
+  a **4×** spread — while the marginal no-show rate across all entries is ≈ **4.6%**.
+  (The marginal sits a little above the 4% window-base blend because a second,
+  independent lever — scheduling lead time — lifts short-notice shifts across every
+  window; see `scenarios/short-notice-shifts-no-show-more.md`. That lever is
+  window-independent, so this night-vs-day spread is undisturbed.)
 
 Every assignment produces exactly one `time_entries` row, so the overall no-show
 rate is just the share of rows with `no_show = true`. The teaching point is that a
-flat "4% no-show" hides where the risk actually sits: bucket by the shift's
+flat "~4.6% no-show" hides where the risk actually sits: bucket by the shift's
 `shift_window` and the night window stands out as the operational problem to fix.
 It's the setup for a staffing / reminder-intervention question — which shifts
 should get the attention? (Those no-show rows are also the only ones with null
@@ -19,16 +23,16 @@ population, not two separate issues.)
 ## How to find it
 
 ```sql
--- overall rate ≈ 0.04, but it splits sharply by shift window
+-- overall rate ≈ 0.046, but it splits sharply by shift window
 select s.shift_window,
        count(*)                        as entries,
-       avg(t.no_show::int)             as no_show_rate   -- night ~0.08, day ~0.02
+       avg(t.no_show::int)             as no_show_rate   -- night ~0.08, day ~0.025
 from time_entries t
 join shifts s using (shift_id)
 group by s.shift_window
-order by no_show_rate desc;            -- night on top, ~4x the day windows
+order by no_show_rate desc;            -- night on top, ~3x the day windows
 
-select avg(no_show::int) as overall,                     -- ≈ 0.04
+select avg(no_show::int) as overall,                     -- ≈ 0.046
        count(*) filter (where clock_in is null) as null_clock_ins  -- == no-show count
 from time_entries;
 ```

@@ -70,11 +70,18 @@ update the matching line below in the same change.
   `scenarios/revenue-and-ar.md`.
 - **Days to pay.** On paid invoices, `invoices.days_to_pay` is a uniform integer in `[3, 90]`
   (mean ≈ 46); null on outstanding invoices. Flat and independent of payer.
-- **Claim adjudication.** `invoices.adjustment_amount` (contractual write-down) is present on
-  ≈ 85% of claims at ≈ 14% of charge; `invoices.denied_amount` is non-zero on ≈ 8% of claims at
-  ≈ 25% of charge; `invoices.claim_status ∈ {adjusted, clean, denied}` (≈ 0.77 / 0.14 / 0.08),
-  derived so `denied` iff denied_amount > 0, else `adjusted` iff written down, else `clean`. All
-  flat and **independent of `payer`**; `allowed = charge − adjustment_amount − denied_amount ≥ 0`.
+- **Claim adjudication.** `invoices.adjustment_amount` (contractual write-down) averages ≈ 14%
+  of charge overall and `invoices.denied_amount` is non-zero on ≈ 8% of claims (≈ 25% of charge
+  when denied); `invoices.claim_status ∈ {adjusted, clean, denied}` (≈ 0.75 / 0.17 / 0.08),
+  derived so `denied` iff denied_amount > 0, else `adjusted` iff written down, else `clean`;
+  `allowed = charge − adjustment_amount − denied_amount ≥ 0`. Both the write-down and the denial
+  rate are **keyed off `payer`** (see next line), so these are payer-weighted marginals, not flat
+  draws.
+- **Adjudication varies by payer.** The write-down fraction and denial probability deepen
+  Commercial → Medicare → Medicaid, so `allowed / charge` falls ≈ 0.88 → 0.82 → 0.71; self-pay
+  has no insurer contract so it is written down least (≈ 0.95 allowed) yet collects worst (its AR
+  story is separate — see below). Per-payer E[adjustment/charge] ≈ 10% / 16% / 25% / 3% and
+  denial probability ≈ 5% / 8% / 15% / 3%. See `scenarios/adjudication-varies-by-payer.md`.
 - **Charge per visit.** Mean billed charge tracks the visit type's base charge, ≈ $90
   (Telehealth) up to ≈ $340 (Minor Procedure), with mild ±8% variation; Minor Procedure is
   ≈ 9–10% of visits but ≈ 20% of gross charges. See `scenarios/charge-varies-by-procedure.md`.
@@ -96,7 +103,11 @@ update the matching line below in the same change.
   ≈ 0.40 / 0.35 / 0.10 / 0.15 (flat categorical, independent of status / lead time / no-show).
 - **Appointment reminders.** `appointments.reminder_sent` true ≈ 70% (flat Bernoulli);
   `appointments.reminder_channel ∈ {sms, email}` at ≈ 0.6 / 0.4 **only** where a reminder was
-  sent, else null (channel is null iff `reminder_sent` is false — a hard invariant).
+  sent, else null (channel is null iff `reminder_sent` is false — a hard invariant). A sent
+  reminder scales the no-show hazard down (× 0.68) and an unsent one up (× 1.55), so reminded
+  appointments no-show ≈ 8.5% vs ≈ 20% un-reminded while the marginal stays ≈ 12% — the effect
+  composes multiplicatively with the lead-time/visit-type gradient. See
+  `scenarios/reminders-reduce-no-shows.md`.
 - **Lead time.** Lognormal, median ≈ 10 days, right-skewed out to the 120-day cap.
 - **Provider capacity attributes.** `providers.years_experience` uniform 1–35 yrs (mean ≈ 18);
   `providers.panel_size` (empanelled patient count) uniform 200–2000 (mean ≈ 1100). Both are
@@ -131,17 +142,13 @@ update the matching line below in the same change.
   date to subtract from the service date, so `invoices.days_to_pay` is drawn directly as a
   plausible days-outstanding value on paid invoices — treat it as an aging bucket, not a computed
   latency.
-- **Payer adjudication is flat, not payer-varying.** The funnel is now partly visible —
-  `invoices.adjustment_amount` (contractual write-down), `invoices.denied_amount`, and
-  `invoices.claim_status` expose `charge → allowed → paid → patient_balance` — but every rate is
-  a flat draw **independent of `payer`**. There are still no line items or resubmission, and the
-  teachable "denial / adjustment rate varies by payer (Medicaid writes down more)" cut is a
-  deferred scenario, deliberately *not* planted here.
+- **Adjudication has no line items or resubmission.** The funnel exposes
+  `charge → allowed → paid → patient_balance` at the invoice grain — `invoices.adjustment_amount`
+  (contractual write-down), `invoices.denied_amount`, and `invoices.claim_status` — and the
+  write-down / denial rates now vary by `payer` (see the adjudication lines above). What is still
+  simplified: there are no per-procedure line items and no denial→resubmission→repayment lifecycle;
+  a denied amount is simply carved off the charge in one shot.
 - **Patient clinical attributes carry no planted signal.** `chronic_flag` / `risk_score` are
   flat, independent draws — deliberately *not* correlated with `age_band`, and high-risk
   patients do *not* concentrate visits. The "small high-risk minority drives a disproportionate
   visit share" concentration is a candidate scenario, left for the scenario workflow to plant.
-- **Reminders carry no attendance signal.** `reminder_sent` is a flat 70% draw with *no* effect
-  on the no-show rate — reminded and un-reminded appointments no-show identically. The
-  "reminded appointments no-show materially less" lift is a candidate scenario, left for the
-  scenario workflow to plant.

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import numpy as np
 import polars as pl
 
 from potato_tornado.core.collection import GenContext
@@ -30,12 +31,19 @@ _GAP_REVIEW_HIGH = 8  # reported -> under_review: 1-7 days
 _GAP_DECISION_LOW = 1
 _GAP_DECISION_HIGH = 30  # under_review -> terminal: 1-29 days
 
+# Litigation cycle-time tax: attorney-represented claims take longer to walk
+# reported -> terminal. Both lifecycle gaps are stretched by this factor on litigated
+# claims, so the reported -> terminal span runs ~this much longer than non-litigated peers
+# (the cycle-time half of the "litigation tax"). See `scenarios/litigation-tax.md`.
+_LITIGATION_CYCLE_MULT = 1.75
+
 
 def build_claim_status_history(ctx: GenContext) -> pl.DataFrame:
     claims = ctx.table("claims")
     claim_ids = claims["claim_id"].to_list()
     claim_dates = claims["claim_date"].to_list()
     statuses = claims["status"].to_list()
+    litigated = claims["litigated"].to_list()
     m = len(claim_ids)
 
     # Two strictly-positive gaps per claim: reported -> under_review, then -> terminal.
@@ -45,6 +53,14 @@ def build_claim_status_history(ctx: GenContext) -> pl.DataFrame:
     gap_review = history_rng.numpy.integers(_GAP_REVIEW_LOW, _GAP_REVIEW_HIGH, size=m)
     gap_decision = history_rng.numpy.integers(_GAP_DECISION_LOW, _GAP_DECISION_HIGH, size=m)
 
+    # Litigated claims stretch both gaps by the cycle-time factor — a multiplier on the
+    # already-drawn gaps (not a new draw, so non-litigated rows stay byte-identical). Both
+    # offsets scale by the same factor, so the walk stays strictly increasing (the terminal
+    # offset stays > the review offset). See `scenarios/litigation-tax.md`.
+    mult = np.where(np.asarray(litigated, dtype=bool), _LITIGATION_CYCLE_MULT, 1.0)
+    review_offset = np.round(gap_review * mult).astype(int)
+    terminal_offset = np.round((gap_review + gap_decision) * mult).astype(int)
+
     claim_id_col: list[str] = []
     seq_col: list[int] = []
     from_status: list[str | None] = []
@@ -53,8 +69,6 @@ def build_claim_status_history(ctx: GenContext) -> pl.DataFrame:
 
     for i in range(m):
         base = claim_dates[i]
-        offset_review = int(gap_review[i])
-        offset_terminal = int(gap_review[i] + gap_decision[i])
         # reported (entered on the claim date), then under_review, then the terminal
         # status — which equals the claim's own `status`.
         claim_id_col += [claim_ids[i], claim_ids[i], claim_ids[i]]
@@ -63,8 +77,8 @@ def build_claim_status_history(ctx: GenContext) -> pl.DataFrame:
         to_status += [_STAGE_REPORTED, _STAGE_UNDER_REVIEW, statuses[i]]
         changed_at += [
             base,
-            base + timedelta(days=offset_review),
-            base + timedelta(days=offset_terminal),
+            base + timedelta(days=int(review_offset[i])),
+            base + timedelta(days=int(terminal_offset[i])),
         ]
 
     return pl.DataFrame(

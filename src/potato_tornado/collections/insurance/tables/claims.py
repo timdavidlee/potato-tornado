@@ -62,6 +62,17 @@ _CAT_BASE_P = 0.03
 _FRAUD_P = 0.04
 _LITIGATION_P = 0.10
 
+# Litigation severity loading: attorney-represented claims run a materially heavier
+# `reported_amount` — the severity half of the "litigation tax" (the cycle-time half
+# lives in `claim_payments.settlement_days` and `claim_status_history`). Routing the tax
+# through `reported_amount` (rather than straight onto `paid_amount`) keeps the payout-cap
+# invariant intact: `paid` still follows `reported` up within `min(reported, coverage) -
+# deductible`. The multiplier runs above the ~1.7x paid target because the payout cap
+# compresses it: litigated claims scaled past a policy's `coverage_limit` pay the capped
+# amount, so the realized paid ratio lands below the reported multiplier. See
+# `scenarios/litigation-tax.md`.
+_LITIGATION_SEVERITY_MULT = 2.2
+
 
 def build_claims(ctx: GenContext) -> pl.DataFrame:
     policies = ctx.table("policies")
@@ -138,6 +149,14 @@ def build_claims(ctx: GenContext) -> pl.DataFrame:
     catastrophe_flag = ctx.rng.child("catastrophe").numpy.random(total) < cat_p
     fraud_flag = ctx.rng.child("fraud").numpy.random(total) < _FRAUD_P
     litigated = ctx.rng.child("litigation").numpy.random(total) < _LITIGATION_P
+
+    # Apply the litigation severity loading to the already-drawn `reported_amount` — a
+    # multiplier on the drawn value, not a new draw, so the severity/peril/status streams
+    # stay byte-identical and only litigated claims move. `paid_amount` then follows this
+    # heavier `reported` up within the existing payout cap (see `claim_payments`).
+    reported_amount = np.round(
+        np.where(litigated, reported_amount * _LITIGATION_SEVERITY_MULT, reported_amount), 2
+    )
 
     return pl.DataFrame(
         {

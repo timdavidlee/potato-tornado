@@ -27,9 +27,13 @@ update the matching line below in the same change.
   (the approved-equivalent, floored at 0). A `partial` pays 0.3–0.8× that, so a partial never
   pays more than an approved claim on the same facts would.
 - **Temporal ordering.** `claim_date` falls within `[policies.start_date, policy term end]`
-  and on/before `end_date`; `paid_date ≥ claim_date` (a 5–45 day settlement delay).
+  and on/before `end_date`; `paid_date ≥ claim_date` (a 5–45 day settlement delay, stretched
+  ×1.75 on litigated claims — see the litigation tax below).
 - **Settlement-days identity.** `claim_payments.settlement_days = (paid_date − claim_date)` in
-  whole days, a 5–45 day integer delay — a derived column, not an independent draw.
+  whole days — a derived column, not an independent draw. The base is a 5–45 day integer;
+  litigated claims stretch it ×1.75, so non-litigated values sit in `[5, 45]` and litigated
+  ones extend up to `round(45 × 1.75) = 79` (the litigation cycle-time tax — see
+  `scenarios/litigation-tax.md`).
 - **Subrogation eligibility.** `claim_payments.subrogation_recovery_amount > 0` **only** on
   not-at-fault claims (the claim's `at_fault is False`) and always `≤ paid_amount` (it is a
   fraction of the payout). It is **null** on ineligible claims (at-fault, or non-auto where
@@ -57,9 +61,11 @@ update the matching line below in the same change.
 - **Claim status history.** `claim_status_history.claim_id ∈ claims`; each claim has exactly
   **3** transition rows walking `reported → under_review → its adjudication status`
   (`seq ∈ {1, 2, 3}`, `from_status` null only on `seq = 1`). `changed_at` starts at the claim's
-  `claim_date` and **strictly increases** with `seq` within a claim (monotonic, no reopenings).
-  The terminal (`seq = 3`) `to_status` **equals** the claim's `status`, so the log reconciles
-  with `claims` exactly.
+  `claim_date` and **strictly increases** with `seq` within a claim (monotonic, no reopenings) —
+  the reported→terminal gaps are stretched ×1.75 on litigated claims (both gaps by the same
+  factor, so strict monotonicity is preserved; the litigation cycle-time tax). The terminal
+  (`seq = 3`) `to_status` **equals** the claim's `status`, so the log reconciles with `claims`
+  exactly.
 - **Instalments reconcile.** `premium_billing.policy_id ∈ policies`; a policy has exactly
   `{monthly: 12, quarterly: 4, annual: 1}` instalments per its `payment_frequency`, and those
   instalments **sum to `annual_premium`** (to the cent). `amount > 0`;
@@ -118,10 +124,13 @@ update the matching line below in the same change.
 - **Claim-context flags.** `at_fault` ≈ **0.55** true among the (non-null) auto claims;
   `catastrophe_flag` ≈ **0.10** overall, its *rate* conditioned on peril (weather ⇒ ≈ **0.35**,
   every other peril ≈ **0.03**) — only the rate varies, severity stays peril-independent;
-  `fraud_flag` ≈ **0.04** (SIU referral); `litigated` ≈ **0.10** (attorney representation). All
-  are flat base rates drawn independently of tier, severity, adjuster, and adjudication outcome
-  (measured fraud ≈ 0.046, litigated ≈ 0.109, cat|weather ≈ 0.36 vs cat|other ≈ 0.04 at full
-  scale; small-n seed noise at `scale < 1`).
+  `fraud_flag` ≈ **0.04** (SIU referral); `litigated` ≈ **0.10** (attorney representation). Their
+  *incidence* is a flat base rate drawn independently of tier, severity, adjuster, and
+  adjudication outcome (measured fraud ≈ 0.046, litigated ≈ 0.109, cat|weather ≈ 0.36 vs
+  cat|other ≈ 0.04 at full scale; small-n seed noise at `scale < 1`). **`litigated` is the one
+  exception on *consequences*:** its incidence stays flat, but litigated claims carry a heavier
+  `reported_amount`/`paid_amount` and a longer settlement/lifecycle cycle (the litigation tax —
+  see `scenarios/litigation-tax.md`).
 - **Billing outcome mix.** `premium_billing.status` ≈ paid 0.90 / late 0.07 / missed 0.03 —
   a low, flat delinquency rate drawn independently of policy, tier, and cadence (no
   concentration). On-time payments land within 3 days of `due_date`, late ones 7–40 days after.
@@ -162,25 +171,36 @@ update the matching line below in the same change.
   `start_date`, so total claim volume still *ramps* over the three years (≈ 132 → 237 per
   calendar year at `scale=1.0`, ~1.8×) purely from a growing in-force, not from rising per-policy
   frequency — see the cold-start note under Deliberate simplifications.
-- **reported_amount (the "severity" half).** Lognormal median ≈ **\$6.4k**, σ ≈ 1.0 → p95 ≈
-  \$30k, max past \$50k. Independent of tier, product, and peril (a deliberate simplification).
+- **reported_amount (the "severity" half).** Lognormal median ≈ **\$6.4k** (≈ **\$6.5–7.0k**
+  with the litigation loading below), σ ≈ 1.0 → p95 ≈ \$30–34k, max past \$50k. Independent of
+  tier, product, and peril (a deliberate simplification); the **one coupling** is a **×2.2**
+  loading on the ~11% of litigated claims (the litigation tax — see
+  `scenarios/litigation-tax.md`), which nudges the overall median/mean up a few points.
 - **Adjudication mix.** approved 0.62 / partial 0.16 / denied 0.14 / open 0.08 (measured ≈
   0.61 / 0.18 / 0.13 / 0.08). See `scenarios/adjudication-funnel-reported-vs-paid.md`.
 - **paid_amount.** approved = `clip(min(reported, coverage_limit) − deductible, 0, ∞)`;
-  partial = 0.3–0.8× that. Total paid ≈ 65% of total reported.
-- **Settlement detail.** `settlement_days` uniform integer over [5, 45] (mean ≈ 25 days);
-  `settlement_method` ≈ **ach 0.45 / check 0.35 / card 0.20** (measured ≈ 0.46 / 0.35 / 0.20).
-  Both flat — no per-adjuster, per-amount, or per-tier coupling (a settlement-time-varies-by-
-  adjuster cut is a candidate scenario, not planted here).
+  partial = 0.3–0.8× that. Total paid ≈ **62–64%** of total reported (the litigation loading
+  raises `reported` faster than `paid` on the litigated claims it caps, so the realization ratio
+  sits a touch below the pre-litigation ≈65%).
+- **Settlement detail.** `settlement_days` a 5–45 day uniform integer draw (non-litigated
+  mean ≈ 25 days), **stretched ×1.75 on litigated claims** (litigated mean ≈ 42 days, extending
+  up to `round(45 × 1.75) = 79` — the litigation cycle-time tax, see
+  `scenarios/litigation-tax.md`); `settlement_method` ≈ **ach 0.45 / check 0.35 / card 0.20**
+  (measured ≈ 0.46 / 0.35 / 0.20). `settlement_method` is flat (no per-adjuster/amount/tier
+  coupling); `settlement_days` is flat **except** for the litigation stretch (a
+  settlement-time-varies-by-adjuster cut is a candidate scenario, not planted here).
 - **Subrogation.** ≈ **25%** of eligible (not-at-fault auto) claims recover, ≈ **5–6%** of all
   settled claims carry a positive `subrogation_recovery_amount` (measured ≈ 0.055 at full
   scale); the recovered amount is **0.20–0.60× `paid_amount`**. A net-of-subro loss ratio
   (gross paid vs. paid − recovery) is the intended use; the recovery is flat (no tier/severity
   coupling beyond the at-fault gate).
-- **Loss ratio (Σ paid ÷ Σ premium).** Overall ≈ **0.61**, rising **preferred ≈ 0.43 →
-  standard ≈ 0.60 → high_risk ≈ 0.85** (tier means over several seeds; the per-tier ratios
-  carry ±0.15 seed noise and the standard/high_risk gap can narrow or invert on a given seed —
-  see `scenarios/loss-ratio-rises-with-risk-tier.md`).
+- **Loss ratio (Σ paid ÷ Σ premium).** Overall ≈ **0.65** (≈0.62–0.69 across seeds), rising
+  **preferred ≈ 0.46 → standard ≈ 0.65 → high_risk ≈ 0.90** (tier means over several seeds; the
+  per-tier ratios carry ±0.15 seed noise and the standard/high_risk gap can narrow or invert on
+  a given seed — see `scenarios/loss-ratio-rises-with-risk-tier.md`). These sit a few points
+  above a litigation-free book: the litigation tax adds ~11% of claims paying ≈1.8× and lifts
+  every tier roughly uniformly (litigation incidence is tier-independent), so the *ordering* is
+  untouched.
 - **peril mix.** Skewed (not uniform): collision ≈ 0.28 / water_damage ≈ 0.22 / weather ≈ 0.20
   / theft ≈ 0.14 / liability ≈ 0.10 / fire ≈ 0.06 — the common personal-lines perils dominate,
   fire is rare. This is a **marginal** frequency only; peril stays independent of product and
@@ -209,14 +229,20 @@ update the matching line below in the same change.
   investment income. It is a teaching ratio, not a GAAP combined ratio.
 - **Severity and peril are independent** of policyholder geography, vehicle/home specifics,
   product, and risk tier — only *frequency* varies by tier, not *severity*. A real book would
-  couple severity to product and peril; here the two halves are cleanly separable by design.
-- **Claim-context flags carry no signal** — `at_fault`, `fraud_flag`, and `litigated` are flat
-  base rates drawn independently of severity, tier, adjudication outcome, and adjuster;
+  couple severity to product and peril; here the two halves are cleanly separable by design. The
+  **one** deliberate severity coupling is the litigation tax (a ×2.2 `reported_amount` loading on
+  litigated claims — see the claim-context-flags bullet below); severity stays independent of
+  every other covariate.
+- **Most claim-context flags carry no signal** — `at_fault` and `fraud_flag` are flat base
+  rates drawn independently of severity, tier, adjudication outcome, and adjuster;
   `catastrophe_flag` conditions its *rate* on the weather peril but leaves `reported_amount`
   peril-independent (consistent with the severity-independence bullet above). So the
-  cat-vs-attritional **severity** split, fraud-denies-more (an inflated `denied` share and lower
-  settlements), and the litigation tax (heavier `paid_amount` + longer cycle time) are candidate
-  scenarios, not planted here.
+  cat-vs-attritional **severity** split and fraud-denies-more (an inflated `denied` share and
+  lower settlements) remain candidate scenarios, not planted here. **`litigated` is the
+  exception**: its incidence stays a flat base rate, but its consequences *are* coupled — the
+  **litigation tax** (heavier `reported_amount`/`paid_amount` + a longer settlement/lifecycle
+  cycle) is planted, so a cut by litigation status is **not** flat. See
+  `scenarios/litigation-tax.md`.
 - **`policies.coverage_limit` takes a small set of values** (product base × one of three
   steps), not a continuous underwritten limit; `deductible` is a 3-value ladder. This
   **policy-level lattice stays** — it is what the claim → payout path reads, so keeping it a
@@ -282,7 +308,7 @@ where pay.paid_amount > greatest(least(c.reported_amount, p.coverage_limit) - p.
 
 -- ~11% of policies claim; severity is heavy-tailed
 select count(distinct policy_id)::float / (select count(*) from policies) as claim_rate,  -- ≈ 0.11
-       quantile_cont(reported_amount, 0.95) as sev_p95                                    -- ≈ 30000
+       quantile_cont(reported_amount, 0.95) as sev_p95                                    -- ≈ 31000
 from claims;
 
 -- no claim pile-up at the window end: the last 90 days hold ≲ the prior 90 (expect ratio ≈ 1)
@@ -291,7 +317,7 @@ select count(*) filter (where claim_date >= (select max(claim_date) from claims)
                                  and claim_date <  (select max(claim_date) from claims) - interval 90 day), 0) as tail_ratio
 from claims;
 
--- loss ratio rises with tier (≈0.43 → ≈0.85; ±0.15 seed noise, gap can narrow)
+-- loss ratio rises with tier (≈0.46 → ≈0.90; ±0.15 seed noise, gap can narrow)
 select ph.risk_tier,
        sum(pay.paid_amount) / (select sum(p2.annual_premium) from policies p2
                                join policyholders ph2 using (policyholder_id)

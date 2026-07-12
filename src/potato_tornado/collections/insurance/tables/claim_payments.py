@@ -23,6 +23,12 @@ _PARTIAL_HIGH = 0.80
 _SETTLE_MIN_DAYS = 5
 _SETTLE_MAX_DAYS = 45
 
+# Litigation cycle-time tax: attorney-represented claims settle slower. The base
+# settlement delay is stretched by this factor on litigated claims (the cycle-time half
+# of the "litigation tax"; the severity half rides on `claims.reported_amount`). See
+# `scenarios/litigation-tax.md`.
+_LITIGATION_SETTLE_MULT = 1.75
+
 # How the payout was disbursed — a flat operational mix, no per-adjuster or per-amount
 # coupling. Own child stream. Single-table literals.
 _SETTLEMENT_METHODS = ["check", "ach", "card"]
@@ -59,6 +65,12 @@ def build_claim_payments(ctx: GenContext) -> pl.DataFrame:
 
     claim_dates = settled["claim_date"].to_list()
     delay = ctx.rng.child("settle").numpy.integers(_SETTLE_MIN_DAYS, _SETTLE_MAX_DAYS + 1, n)
+    # Stretch the base delay on litigated claims — a multiplier on the already-drawn delay,
+    # not a new draw, so the base settle stream stays byte-identical. `settlement_days` and
+    # `paid_date` both derive from this scaled `delay`, so the settlement-days identity
+    # (settlement_days = paid_date - claim_date) still holds.
+    litigated = settled["litigated"].to_numpy()
+    delay = np.where(litigated, np.round(delay * _LITIGATION_SETTLE_MULT).astype(int), delay)
     paid_date = [d + timedelta(days=int(x)) for d, x in zip(claim_dates, delay, strict=True)]
 
     # Settlement detail: `settlement_days` is derived (= the delay, i.e. paid_date minus

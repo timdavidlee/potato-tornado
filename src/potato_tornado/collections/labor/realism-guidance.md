@@ -161,10 +161,13 @@ update the matching line below in the same change.
   margin (`standard_bill_rate − hourly_rate`) is therefore always positive and widens up the
   ladder. Markup is flat *by role only* — no per-practice compression (a future scenario).
 - **Realization.** For billable members, `project_members.bill_rate = standard_bill_rate ×
-  realization`, realization ~Normal(0.85, 0.06) clamped to [0.6, 1.0] — mean ≈ 0.85, i.e.
-  members bill at ~85% of list. Non-billable members (~25% of the workforce) carry a null
-  bill_rate. Flat across billing types and clients (the depressed-realization-by-billing-type
-  surprise is a future scenario, not planted here).
+  realization`, realization ~Normal(mean, 0.06) clamped to [0.6, 1.0] — overall mean ≈ 0.85,
+  i.e. members bill at ~85% of list. The Normal's *mean* is keyed off the project's
+  `billing_type` (`time_and_materials` 0.89 / `retainer` 0.85 / `fixed_fee` 0.78), so
+  realization is **not** flat across the commercial model — fixed-fee work realizes a ~12pt
+  lower rate than T&M (see `scenarios/fixed-fee-engagements-realize-lower.md`); the type means
+  blend (weights 0.55 / 0.15 / 0.30) back to the ~0.85 firm-wide mean. Still independent of
+  `industry` and client. Non-billable members (~25% of the workforce) carry a null bill_rate.
 - **Billed hours.** For billable members, `billed_hours` scales allocation share × weekly
   capacity × weeks-on-project × a realization factor ~Normal(0.85, 0.1) clamped to [0.4, 1.0],
   so most memberships land in the low hundreds of hours (a quarter-allocation short stint runs
@@ -238,14 +241,21 @@ update the matching line below in the same change.
   skewed high, most 4s and 5s.
 - **Shift shape.** morning/afternoon/night windows roughly uniform; durations 8h dominant
   (0.70), then 10h (0.20), 12h (0.10).
-- **Attendance.** ~4% no-show overall, but keyed to the shift window: night ≈0.075,
-  morning/afternoon ≈0.02–0.025 (roughly a 4× spread). Clock-in jitter is normal with a
-  slight late bias (mean +3 min).
+- **Attendance.** ~4.6% no-show overall, driven by two independent levers that compose
+  multiplicatively on the per-row probability. First the shift window: night ≈0.075,
+  morning/afternoon ≈0.02–0.025 (a ~4× spread; see `scenarios/no-show-rate.md`). Second the
+  scheduling lead time: a factor `clip(7·exp(−lead_days/1.75) + 0.70, 0.70, 4.8)` on that base
+  that amplifies short-notice shifts and suppresses well-planned ones (see
+  `scenarios/short-notice-shifts-no-show-more.md`). The lead factor averages ≈1.1 across the
+  roster, so the window base rates stay the marginal-preserving centre. Clock-in jitter is
+  normal with a slight late bias (mean +3 min).
 - **Scheduling lead time.** `assignments.assigned_at` is the shift's `planned_start` minus a
   right-skewed lead (lognormal, median ≈7 days, tail out to a few weeks), floored at the
   employee's hire date — so `planned_start − assigned_at` (the lead time) is mostly ~a week,
-  with some same-week and some far-out rosters. FLAT and drawn on its own stream, independent
-  of `no_show` (the short-notice → no-show correlation is a future scenario).
+  with some same-week and some far-out rosters. The lead-time *distribution* is still drawn
+  flat on its own stream in `assignments` (independent of window), but no-shows now key off it
+  in `time_entries` (see `scenarios/short-notice-shifts-no-show-more.md`): short-notice shifts
+  (<3d) miss ≈2.9× more often than well-planned ones (≥7d).
 - **Timesheet compliance.** Among worked (non-no-show) entries, `approval_status` runs
   approved ≈0.90 / pending ≈0.07 / rejected ≈0.03, and `submitted_late` ≈0.12. Flat org-wide
   rates, independent of practice, shift window, and every other field (the compliance-by-slice
@@ -286,9 +296,9 @@ update the matching line below in the same change.
 ## Deliberate simplifications (intended — do not "fix")
 
 - One `time_entries` row per assignment: no multiple punches, meal breaks, or split shifts.
-- Attendance is independent per row — the no-show probability varies by shift window, but
-  there is no per-employee reliability and no streaks. Likewise overtime depends on the
-  department but not on the individual employee.
+- Attendance is independent per row — the no-show probability varies by shift window and
+  scheduling lead time, but there is no per-employee reliability and no streaks. Likewise
+  overtime depends on the department but not on the individual employee.
 - Employees are rostered only in their home department (no cross-department coverage).
 - **The reporting tree is a flat random senior-in-department pick.** `manager_id` is chosen
   uniformly among same-department employees of a higher `role` rung, so spans of control are
@@ -390,11 +400,13 @@ update the matching line below in the same change.
   prices labor only) or against `billed_hours` — category, amount, billability, and member
   attribution are drawn flat and independently. The travel-heavy-spend-on-off-site-projects cut
   (echoing `off-site-staffing-by-location`) is a future scenario, not planted here.
-- **Bill economics are flat, not planted.** `standard_bill_rate` markup ladders by role only
-  (no per-practice compression) and `bill_rate` realization is a uniform ~0.85 discount
-  independent of `billing_type`, `industry`, or client — so margin-by-practice and
-  realization-by-billing-type look flat by design. These are the natural shortlist for future
-  scenarios; today they are realism dimensions only. Non-billable members do carry a null
+- **Bill-rate markup is flat by role; realization now varies by billing_type.**
+  `standard_bill_rate` markup ladders by role only (no per-practice compression), so
+  margin-by-practice still looks flat by design — a natural future scenario, a realism
+  dimension only today. `bill_rate` realization, by contrast, is **no longer flat**: its mean
+  is keyed off `billing_type` (fixed-fee realizes ~12pt below T&M — a planted signal, see
+  `scenarios/fixed-fee-engagements-realize-lower.md`), though it stays independent of
+  `industry` and client. Non-billable members do carry a null
   `bill_rate` (the billable/non-billable split is honoured). Project revenue is now *computable*
   staffing-side as `Σ billed_hours × bill_rate` (both set for billable members), so the earlier
   "approximable but not reconciled" gap is closed on the staffing side — but `billed_hours` is
@@ -404,8 +416,8 @@ update the matching line below in the same change.
 ## How to review
 
 ```sql
--- no-show rate ≈ 0.04, and null clock-ins are exactly the no-shows
-select avg(no_show::int)                              as no_show_rate,       -- ≈ 0.04
+-- no-show rate ≈ 0.046, and null clock-ins are exactly the no-shows
+select avg(no_show::int)                              as no_show_rate,       -- ≈ 0.046
        count(*) filter (where clock_in is null)       as null_clock_ins,
        count(*) filter (where no_show)                as no_show_rows        -- == null_clock_ins
 from time_entries;

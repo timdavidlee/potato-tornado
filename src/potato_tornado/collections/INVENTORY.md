@@ -9,26 +9,33 @@ _As of 2026-07-11._
 
 | Collection | Tables | Realism status | Scenarios | Field-enrichment backlog |
 |---|---|---|---|---|
-| [`hotel`](hotel) | 8 | ✅ Converged | 14 (richest) | ✅ Fully done (calendar rate-variation realized; forecast-band investigated → infeasible; star/YoY scenario candidate open) |
-| [`streaming`](streaming) | 8 | ✅ Converged | 8 | ✅ Fully done (14 of 14 + subscription right-censoring) |
-| [`labor`](labor) | 12 | ✅ Converged (reference collection) | 4 | ✅ Round-1 (20 cols) + round-2 (6 cols + 5 tables) + project right-censoring; `assignments.assigned_at` signal → scenario |
-| [`retail`](retail) | 6 | ✅ Converged | 3 | ✅ Economics done: `discount_pct` + flat `cost`/`promo` + `order_charges` (shipping/tax); margin/promo signals → scenario |
-| [`insurance`](insurance) | 10 | ✅ Converged | 3 | ✅ High-leverage cols (flat) + `claim_status_history` + `coverage_lines`; `reinsurance` → new collection; signals → scenario |
-| [`clinic`](clinic) | 6 | ✅ Converged | 10 | 🔨 11 enrichment cols built (7 realism + 4 flat scenario-cols); scenario signals open |
-| [`logistics`](logistics) | 5 | ✅ Converged | 3 | 🔨 7 quick wins + 2 high-leverage + hub-city de-lattice; 3 scenario-bearing cols routed |
+| [`hotel`](hotel) | 8 | ✅ Converged | 16 (richest) | ✅ Fully done (calendar rate-variation realized; forecast-band investigated → infeasible; star/YoY scenario candidate still open) |
+| [`streaming`](streaming) | 8 | ✅ Converged | 10 | ✅ Fully done (14 of 14 + subscription right-censoring) |
+| [`labor`](labor) | 12 | ✅ Converged (reference collection) | 6 | ✅ Round-1 (20 cols) + round-2 (6 cols + 5 tables) + project right-censoring; `assignments.assigned_at` signal → realized (short-notice no-show) |
+| [`retail`](retail) | 6 | ✅ Converged | 5 | ✅ Economics done: `discount_pct` + `cost`/`promo` + `order_charges` (shipping/tax); margin signal → realized (promo signal still open) |
+| [`insurance`](insurance) | 10 | ✅ Converged | 5 | ✅ High-leverage cols + `claim_status_history` + `coverage_lines`; `reinsurance` → new collection; litigation signal → realized |
+| [`clinic`](clinic) | 6 | ✅ Converged | 12 | 🔨 11 enrichment cols built (7 realism + 4 flat scenario-cols); reminder + payer-adjudication signals → realized |
+| [`logistics`](logistics) | 5 | ✅ Converged | 5 | 🔨 7 quick wins + 2 high-leverage + hub-city de-lattice; 2 of 3 scenario-bearing cols realized (dim-weight, signature) |
 
-**Totals:** 7 collections, 55 tables.
+**Totals:** 7 collections, 55 tables, 59 scenarios.
 
 ## Notes
 
-- **All 7 collections remain converged on realism.** Two field-enrichment + realism
-  passes landed on 2026-07-11: pass 1 added flat enrichment columns and de-lattices
-  across every collection; pass 2 added two new tables (`retail.order_charges`,
-  `insurance.coverage_lines`), applied lifecycle **right-censoring** to `labor` project
-  completions and `streaming` subscriptions, and closed hotel's remaining candidates. The
-  full repo-wide gate is green (424 tests).
+- **Scenario round (2026-07-11).** Drafted 14 new scenario docs (one–two per collection),
+  then realized all 14 as scenario tests over two PRs: **8 already-produced signals**
+  (hotel over-capacity + RevPAR inversions, logistics dim-weight + signature gradient,
+  insurance exposure-vs-frequency, streaming US-ARPU + annual-MRR, retail shipping
+  regressivity) shipped test-only in v0.3.0; **6 planted signals** (clinic reminder→no-show
+  + payer adjudication, labor short-notice no-show + billing-type realization, retail
+  category margin, insurance litigation tax) tuned the `tables/` generators to plant the
+  signal while holding each collection's marginals. Full repo-wide gate green (438 tests).
+- **All 7 collections remain converged on realism.** The earlier two field-enrichment +
+  realism passes (also 2026-07-11) added flat enrichment columns and de-lattices across
+  every collection, two new tables (`retail.order_charges`, `insurance.coverage_lines`),
+  and lifecycle **right-censoring** to `labor` project completions and `streaming`
+  subscriptions.
 - **hotel / streaming / labor / retail** are the mature group — realism converged *and*
-  the field-enrichment backlog complete. hotel is the flagship (14 scenarios); its
+  the field-enrichment backlog complete. hotel is the flagship (16 scenarios); its
   forecast-band item was investigated and closed as infeasible (a documented deliberate
   simplification), leaving only the star/YoY scenario candidate. streaming (14 of 14) and
   labor (round-1 + round-2, the worked reference) both now right-censor derived end-dates
@@ -39,13 +46,12 @@ _As of 2026-07-11._
   retains the check-out-spill convention because its `stays` are completed-revenue records
   — documented as an exception in each collection's `realism-guidance.md`.
 - **insurance** is converged with its in-collection enrichment complete — the high-leverage
-  columns (flat), the `claim_status_history` lifecycle table, and the `coverage_lines`
+  columns, the `claim_status_history` lifecycle table, and the `coverage_lines`
   premium-side breakdown all shipped; a `reinsurance` domain is deferred to
-  `/data-collection:propose` as its own collection, and the planted signals route to
-  `/scenario:draft-or-propose`.
-- **clinic / logistics** have substantially built backlogs with scenario-bearing work
-  routed out: clinic shipped 11 enrichment columns (7 realism + 4 flat scenario-columns,
-  signals open); logistics de-latticed the multi-hop hub city and routed its 3
-  scenario-bearing columns.
+  `/data-collection:propose` as its own collection.
+- **clinic / logistics** have substantially built backlogs with scenario-bearing work now
+  largely realized: clinic shipped 11 enrichment columns (7 realism + 4 flat
+  scenario-columns) and realized the reminder + payer-adjudication signals; logistics
+  de-latticed the multi-hop hub city and realized 2 of its 3 scenario-bearing columns.
 - Every collection ships a full doc set (`realism-guidance.md` / `realism-log.md` /
   `TODO.md`), an invariant `test_*.py` suite, and a `test_scenarios.py`.

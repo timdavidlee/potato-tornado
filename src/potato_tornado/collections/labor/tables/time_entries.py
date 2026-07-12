@@ -63,12 +63,31 @@ def build_time_entries(ctx: GenContext) -> pl.DataFrame:
 
     n = joined.height
     planned_start = joined["planned_start"].to_list()
+    assigned_at = joined["assigned_at"].to_list()
     planned_hours = joined["planned_hours"].to_list()
     windows = joined["shift_window"].to_list()
     dept_ids = joined["department_id"].to_list()
 
-    # No-shows: ~4% overall, but the rate depends on the shift window (night ≫ day).
-    no_show_p = np.array([_NO_SHOW_BY_WINDOW[w] for w in windows])
+    # No-shows: ~4% overall, but the rate has two independent levers that compose
+    # multiplicatively. First the shift window (night ≫ day). Second the scheduling
+    # lead time (planned_start - assigned_at): a shift rostered at the last minute is
+    # missed far more often than one published a week+ ahead. The lead-time factor
+    # decays with lead time from a last-minute cap (4.8x) down to a 0.70x floor for
+    # long-planned shifts — so short-notice shifts are amplified and well-planned ones
+    # suppressed relative to the window base. It averages ~1.1 across the roster, so
+    # the marginal no-show holds ~4.6% (≈ the pre-plant rate) and the night/day ratio
+    # is untouched (lead time is drawn independently of window). See
+    # short-notice-shifts-no-show-more.md. The
+    # factor only changes the threshold, not the draw, so the attendance stream below
+    # is untouched (determinism preserved).
+    lead_days = np.array(
+        [
+            (ps - aa).total_seconds() / 86400.0
+            for ps, aa in zip(planned_start, assigned_at, strict=True)
+        ]
+    )
+    lead_factor = np.clip(7.0 * np.exp(-lead_days / 1.75) + 0.70, 0.70, 4.8)
+    no_show_p = np.array([_NO_SHOW_BY_WINDOW[w] for w in windows]) * lead_factor
     showed_up = ctx.rng.child("attendance").numpy.random(n) >= no_show_p
     start_jitter_min = ctx.dist.normal(n, 3.0, 9.0)  # slight tendency to be a bit late
     # Overtime: actual hours are planned + a right-skewed non-negative tail.

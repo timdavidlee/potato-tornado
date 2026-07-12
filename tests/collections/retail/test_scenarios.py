@@ -44,6 +44,23 @@ def test_basket_value_is_right_skewed(retail: dict[str, pl.DataFrame]) -> None:
     assert cast(float, basket["v"].mean()) > cast(float, basket["v"].median())
 
 
+def _margin_by_category(retail: dict[str, pl.DataFrame]) -> dict[str, float]:
+    margins = retail["products"].with_columns(
+        ((pl.col("unit_price") - pl.col("cost")) / pl.col("unit_price")).alias("margin")
+    )
+    by_cat = margins.group_by("category").agg(pl.col("margin").mean().alias("margin"))
+    return dict(zip(by_cat["category"], by_cat["margin"], strict=True))
+
+
+def test_apparel_margin_runs_fat_while_electronics_runs_thin(
+    retail: dict[str, pl.DataFrame],
+) -> None:
+    margins = _margin_by_category(retail)
+    # apparel (highest-return) is fattest and electronics thinnest — the extremes
+    # bracket the ~0.45 middle with a ~30-point spread that runs against returns.
+    assert cast(float, margins["electronics"]) < 0.35 < 0.55 < cast(float, margins["apparel"])
+
+
 def test_apparel_returns_skew_to_fit_and_mind_change(retail: dict[str, pl.DataFrame]) -> None:
     apparel = (
         retail["returns"]
