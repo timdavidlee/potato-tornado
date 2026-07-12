@@ -118,6 +118,50 @@ Keep magnitudes honest — they must match the generator. If you change a weight
 a distribution parameter in a `tables/` module, update the scenario magnitude in
 the same change.
 
+### Document-based scenarios (parse-the-prose signals)
+
+Most scenarios are surfaced with a SQL query over clean columns. A **document-based
+scenario** is a subtype where the analytical work is *parsing unstructured free-form
+text* before any signal can be computed — an agent or student is handed prose
+(markdown transaction records, a policy document of rules, a lab/financial report
+with numbers buried in sentences) and must extract structured facts from it first.
+Author these with [`/scenario:propose-document`](../../../.claude/commands/scenario/propose-document.md)
+then [`/scenario:realize-document`](../../../.claude/commands/scenario/realize-document.md).
+
+The convention that keeps them deterministic and testable:
+
+- **The text column is always the source of truth.** A document is a row in a
+  DuckDB table with a free-form text column (`body`), emitted by an ordinary
+  `build_<docs>(ctx) -> pl.DataFrame`. This rides the existing generator / sink /
+  determinism / test machinery with no new core plumbing. It can be a dedicated
+  `documents` / `notes` table or a text column added to an existing table — decide
+  per scenario. Size the row count through `ctx.n(base)` with a floor of 1 (scenario
+  tests run at `scale=0.5`).
+- **Render facts that already live in structured columns; don't invent an oracle.**
+  Prefer a signal whose ground truth is already a real column elsewhere — the doc row
+  carries `doc_id` + the FK + `body`, and the `body` merely *renders* those facts as
+  prose. Then the test parses `body` and reconciles it against the source column, with
+  no answer leaked into the text. Only if a fact exists nowhere else do you ship an
+  answer-key column beside `body`; when you do, flag in the doc that it's withheld when
+  handing data to students.
+- **Derive numbers into the prose, never re-sample them.** Format the ground-truth
+  value into the template string; never draw the same quantity twice (that desyncs the
+  prose from the answer key). Vary 2–3 template phrasings off a name-keyed
+  `ctx.rng.child(...)` stream so the parser must handle real variation, not one fixed
+  layout.
+- **Files on disk are an optional derived export, not the source of truth.** When a
+  scenario genuinely wants a *folder of files* (one policy doc, a handful of reports),
+  materialize the deterministic text column out to `docs/<doc_id>.md` in a post-
+  `generate()` helper or CLI verb — never inside `generate()`, and never `depends_on`
+  or read those files back (same rule as `working_cache/`).
+
+The doc extends the standard template with **Documents** (which table.column holds the
+text, doc type, rough count), **Parse target** (what to extract, with a snippet), and
+**Ground truth** (structured-column reconciliation vs. a shipped answer-key column);
+the scenario test is **two-layer** — (a) deterministic extraction from `body` equals
+the ground truth, proving the signal is recoverable from prose, then (b) the analytical
+assertion on the parsed values.
+
 ## Realism guidance: the review rubric
 
 Alongside `scenarios/`, every collection ships one `realism-guidance.md` at the
