@@ -15,6 +15,8 @@ Tables
 - ``visits``       : realised encounters for completed appointments (actual vs.
                      scheduled duration).
 - ``invoices``     : billing per visit (payer, charge, amount paid, balance).
+- ``remittance_notes`` : a free-form remittance remark per denied claim; the
+                     denial reason is legible only by parsing the ``body`` text.
 
 Table builders live in ``tables/``, the domain catalogs in ``constants.py``, and
 the intended analytical signals in ``scenarios/``.
@@ -27,6 +29,7 @@ from potato_tornado.collections.clinic.tables import (
     build_invoices,
     build_patients,
     build_providers,
+    build_remittance_notes,
     build_slots,
     build_visits,
 )
@@ -66,6 +69,13 @@ def build() -> Collection:
                 build_invoices,
                 depends_on=("visits",),
                 description="Billing per visit: payer, charge, amount paid, balance.",
+            ),
+            TableSpec(
+                "remittance_notes",
+                build_remittance_notes,
+                depends_on=("invoices",),
+                description="Free-form remittance remark per denied claim; the denial "
+                "reason lives only in the body text.",
             ),
         ),
     )

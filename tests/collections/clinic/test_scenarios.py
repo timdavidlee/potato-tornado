@@ -14,6 +14,77 @@ def clinic() -> dict[str, pl.DataFrame]:
     return generate("clinic", GenerationConfig(seed=7, scale=0.5))
 
 
+# Deterministic extractors a student runs over the free-form remittance note body:
+# the denied dollar figure sits immediately before "denied" / "not paid", and the
+# CARC reason is a CO-<n> code. See scenarios/denial-reasons-in-remittance-notes.md.
+_DENIED_AMOUNT_RE = r"\$([0-9][0-9,]*\.[0-9]{2})[^$]*(?:denied|not paid)"
+_REASON_CODE_RE = r"(CO-[0-9]+)"
+
+
+@pytest.fixture(scope="module")
+def parsed_notes(clinic: dict[str, pl.DataFrame]) -> pl.DataFrame:
+    """Remittance notes with the signal parsed out of ``body`` and joined to invoices.
+
+    Mirrors the student's workflow: extract ``(denied_amount, reason_code)`` from the
+    prose, then reconcile against the structured ``invoices`` columns.
+    """
+    notes = clinic["remittance_notes"].with_columns(
+        pl.col("body").str.extract(_DENIED_AMOUNT_RE, 1).cast(pl.Float64).alias("parsed_denied"),
+        pl.col("body").str.extract(_REASON_CODE_RE, 1).alias("parsed_code"),
+    )
+    return notes.join(
+        clinic["invoices"].select("invoice_id", "payer", "denied_amount"),
+        on="invoice_id",
+    )
+
+
+def _reason_share(notes: pl.DataFrame, payer: str, code: str) -> float:
+    """Share of a payer's denied claims whose parsed reason is ``code``."""
+    sub = notes.filter(pl.col("payer") == payer)
+    return float((sub["parsed_code"] == code).sum()) / sub.height
+
+
+def test_one_remittance_note_per_denied_claim(clinic: dict[str, pl.DataFrame]) -> None:
+    denied = clinic["invoices"].filter(pl.col("denied_amount") > 0.0)
+    assert clinic["remittance_notes"].height == denied.height
+
+
+def test_remittance_note_denied_amount_reconciles_with_invoice(
+    parsed_notes: pl.DataFrame,
+) -> None:
+    # Layer (a): the dollar figure parsed from every note equals invoices.denied_amount
+    # to the cent (a null parse counts as unreconciled, so this pins every row).
+    reconciled = (
+        (parsed_notes["parsed_denied"] - parsed_notes["denied_amount"]).abs() < 0.01
+    ).sum()
+    assert reconciled == parsed_notes.height
+
+
+def test_remittance_note_reason_code_is_recoverable_from_body(
+    parsed_notes: pl.DataFrame,
+) -> None:
+    # Layer (a): the CO-<n> code parsed from prose equals the withheld answer key.
+    assert (parsed_notes["parsed_code"] == parsed_notes["denial_reason_code"]).all()
+
+
+def test_medicaid_denials_concentrate_on_missing_prior_auth(
+    parsed_notes: pl.DataFrame,
+) -> None:
+    # Layer (b): Medicaid prior-auth (CO-197) share ≈ 0.59 vs Commercial ≈ 0.08 at
+    # seed 7 / scale 0.5 (planted 0.45 vs 0.15 ≈ 3x); the gap is the signal.
+    medicaid = _reason_share(parsed_notes, "Medicaid", "CO-197")
+    commercial = _reason_share(parsed_notes, "Commercial", "CO-197")
+    assert medicaid > 0.45 and medicaid > 3.0 * commercial
+
+
+def test_commercial_denials_concentrate_on_bundling(parsed_notes: pl.DataFrame) -> None:
+    # Layer (b): Commercial bundling (CO-97) share ≈ 0.36 vs Medicaid ≈ 0.08 at
+    # seed 7 / scale 0.5 (planted 0.40 vs 0.15); the inverse of the prior-auth split.
+    commercial = _reason_share(parsed_notes, "Commercial", "CO-97")
+    medicaid = _reason_share(parsed_notes, "Medicaid", "CO-97")
+    assert commercial > 0.30 and commercial > 3.0 * medicaid
+
+
 def test_new_patient_no_show_rate_exceeds_others(clinic: dict[str, pl.DataFrame]) -> None:
     appts = clinic["appointments"]
     by_type = appts.group_by("visit_type").agg((pl.col("status") == "no_show").mean().alias("rate"))
