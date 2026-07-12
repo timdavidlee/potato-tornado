@@ -18,13 +18,16 @@
   stock" vs "routed to disposal / quarantined / not resellable" → a `restocked` boolean — and
   (2) the corroborating **arrival-condition** phrase ("tags attached, unworn" / "box opened,
   contents unused" / "screen cracked, will not power on") → `{resellable, opened, damaged}`.
-  Example note:
+  Example note (one of three template layouts; phrasing is category-neutral):
 
-  > *Received RET-0004521 and inspected — earbuds arrive with a cracked case and won't pair;
-  > not resellable, routed to disposal.*
+  > *Received RET-0000004 and inspected — broken on arrival and not usable; routed to
+  > disposal, not resellable.*
 
-  → `item_condition = damaged`, `restocked = False`. The note never states the product
-  category or any rate — those are recovered by joining and aggregating, not by reading.
+  → `item_condition = damaged`, `restocked = False`. A restocked resellable return instead
+  reads e.g. *"Inspection of RET-0000005: tags still attached and the item is unworn.
+  Disposition — cleared back to sellable stock."* → `item_condition = resellable`,
+  `restocked = True`. The note never states the product category or any rate — those are
+  recovered by joining and aggregating, not by reading.
 - **Ground truth:** reconciled against the **existing structured columns**
   `returns.item_condition` and `returns.restocked` — the note merely *renders* the values
   those columns already hold (derived, never re-sampled). No answer-key column is shipped and
@@ -39,8 +42,9 @@
   `returns.restocked`; joined via `order_items.product_id` to `products.category`; read
   alongside the per-category return rate (`order_items ⋈ returns`, see
   `return-rate-by-category.md`).
-- **Magnitude — PLANTED (the facts already exist; only the prose rendering is to be added).**
-  Per-category resale-recovery (restock) rate, measured at `seed=7, scale=0.5`:
+- **Magnitude — REALIZED (the prose renderer is planted; the facts already existed).**
+  Per-category resale-recovery (restock) rate, parsed back out of `inspection_note` and
+  aggregated at `seed=7, scale=0.5`:
   **apparel ≈ 0.68 / consumables ≈ 0.52 / home ≈ 0.47 / electronics ≈ 0.45** (overall ≈ 0.62)
   — a ranking that does **not** match the return-rate ranking
   (apparel 0.22 / electronics 0.10 / home 0.06 / consumables 0.02). Damaged-on-arrival share
@@ -70,15 +74,15 @@ import re, polars as pl
 
 def parse_note(text: str) -> tuple[str, bool]:
     t = text.lower()
-    # disposition -> restocked
-    restocked = bool(re.search(r"returned to (sellable|resell\w*) stock|back to stock|restock", t)) \
+    # disposition -> restocked (a restock phrase, and no "not resellable"/disposal phrase)
+    restocked = bool(re.search(r"sellable stock|back to stock|restock", t)) \
         and not re.search(r"not resell|disposal|quarantin|scrap|write[- ]?off", t)
-    # arrival condition -> item_condition
-    if re.search(r"crack|shatter|won'?t power|dead|torn|stained|damaged|broken", t):
+    # arrival condition -> item_condition (damaged checked first, resellable is the fallback)
+    if re.search(r"crack|shatter|won'?t (power|function)|torn|stain|damaged|broken|not usable", t):
         cond = "damaged"
-    elif re.search(r"box opened|opened|unsealed|worn once|tried on", t):
+    elif re.search(r"opened|unsealed|tried", t):
         cond = "opened"
-    else:                                   # "tags attached", "unworn", "sealed", "as new"
+    else:                                   # "tags attached", "unworn", "fully sealed", "as-new"
         cond = "resellable"
     return cond, restocked
 

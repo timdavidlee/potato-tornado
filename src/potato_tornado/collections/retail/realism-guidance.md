@@ -22,6 +22,12 @@ update the matching line below in the same change.
   `tax_amount = round(0.0725 × merchandise, 2)`. All three are ≥ 0.
 - **One return per line, at most.** `order_item_id` is unique in `returns` (a line is returned
   zero or one times, never split).
+- **Inspection notes render the structured disposition.** Every `returns.inspection_note` is a
+  free-text warehouse note that renders *that return's* `item_condition` and `restocked` (never
+  a re-sampled second draw): parsing the note's arrival-condition phrase recovers
+  `item_condition` and its disposition phrase recovers `restocked`, exactly, for every row. The
+  note never names the product category, so recovery-by-category is only recoverable via the
+  `order_items → products` join. See `scenarios/recovery-rate-hides-in-inspection-notes.md`.
 - **Fan-out consistency.** `orders.item_count` equals the number of `order_items` rows for that
   order (`sum(item_count) == order_items.height`).
 - **Arithmetic identities.** `line_total = round(quantity × unit_price, 2)` — kept **gross**
@@ -99,7 +105,14 @@ update the matching line below in the same change.
   `not_as_described` mixed. Overall ≈ resellable 0.51 / damaged 0.27 / opened 0.22.
 - **restocked.** Keyed to `item_condition` (which is reason-driven), not `reason` directly:
   resellable ~0.97 / opened ~0.50 / damaged ~0.04. The mediated restock-by-reason gradient is
-  fit/mind-change ~0.85, `not_as_described` ~0.63, defective/damaged ~0.08–0.15.
+  fit/mind-change ~0.85, `not_as_described` ~0.63, defective/damaged ~0.08–0.15. Resale-recovery
+  rolled up **by category** runs *against* the return-rate gradient — apparel ≈ 0.68 (highest
+  return AND highest recovery) / consumables ≈ 0.52 / home ≈ 0.47 / electronics ≈ 0.45 (overall
+  ≈ 0.62). See `scenarios/recovery-rate-hides-in-inspection-notes.md`.
+- **inspection_note (`returns`).** Free-text warehouse note, one per return, over 3 template
+  layouts × 3 phrasings per condition/disposition (name-keyed off `ctx.rng`). Pure rendering of
+  `item_condition` + `restocked` — carries no independent draw and no signal of its own beyond
+  the two columns it renders.
 - **return_date.** order date + 5–30 days, clipped to stay inside the window.
 - **brand (`products`).** Uniform over the row category's 5-brand house catalog — so brand
   sits *inside* the category, and a brand-level sales/return slice just re-expresses the

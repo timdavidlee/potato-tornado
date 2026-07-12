@@ -8,6 +8,14 @@ exceeds the line total; ``refund_method`` records how it was issued (original
 payment / store credit / exchange), drawn independently of reason. ``item_condition``
 (resellable / opened / damaged) is the arrival condition, keyed to ``reason``, and is
 what ``restocked`` keys off — only resellable items reliably go back to stock.
+
+``inspection_note`` is a free-form warehouse inspection note, exactly one per return,
+that *renders* the already-computed ``item_condition`` and ``restocked`` values as prose
+(never re-sampling them). It is the source of truth for the recovery-rate scenario: the
+disposition and arrival condition are parseable back out of the text, but the note never
+names the product category, so the per-category recovery gradient only appears once the
+notes are parsed and joined to ``products.category`` (see
+``scenarios/recovery-rate-hides-in-inspection-notes.md``).
 """
 
 from __future__ import annotations
@@ -50,6 +58,75 @@ _REFUND_METHODS = ["original_payment", "store_credit", "exchange"]
 _REFUND_METHOD_WEIGHTS = [0.70, 0.22, 0.08]
 _RETURN_MIN_DAYS = 5
 _RETURN_MAX_DAYS = 30
+
+# Free-text inspection-note vocabulary. Each condition / disposition maps to 3 phrasings so
+# the note isn't one fixed layout; every phrasing stays unambiguously parseable back to the
+# structured value it renders. The phrases are category-neutral — the note never names the
+# product category, so recovery-by-category is only recoverable via the join, not the prose.
+_CONDITION_PHRASES = {
+    "resellable": (
+        "tags still attached and the item is unworn",
+        "packaging intact and the piece looks unused",
+        "in as-new condition, fully sealed",
+    ),
+    "opened": (
+        "box opened but the contents appear unused",
+        "packaging unsealed, only light handling",
+        "opened and tried once, otherwise fine",
+    ),
+    "damaged": (
+        "arrives cracked and will not function",
+        "torn and stained, clearly used",
+        "broken on arrival and not usable",
+    ),
+}
+_DISPOSITION_PHRASES = {
+    True: (
+        "returned to sellable stock",
+        "cleared back to sellable stock",
+        "restocked to inventory",
+    ),
+    False: (
+        "routed to disposal, not resellable",
+        "quarantined as not resellable",
+        "sent to write-off, not resellable",
+    ),
+}
+_NOTE_TEMPLATES = (
+    "Received {rid} and inspected — {cond}; {disp}.",
+    "Inspection of {rid}: {cond}. Disposition — {disp}.",
+    "{rid} processed at the warehouse. Condition on arrival: {cond}. {disp_cap}.",
+)
+
+
+def _render_inspection_notes(
+    ctx: GenContext,
+    return_ids: list[str],
+    item_condition: list[str],
+    restocked: list[bool],
+) -> list[str]:
+    """Render one warehouse inspection note per return, rendering the structured values.
+
+    The prose is the source of truth for the recovery-rate scenario: it renders each return's
+    already-computed ``item_condition`` and ``restocked`` (never re-sampled) so both are
+    parseable back out. Template and phrase choices ride name-keyed ``ctx.rng`` children so the
+    text varies without shifting other tables' draws.
+    """
+    k = len(return_ids)
+    template_idx = ctx.rng.child("note_template").numpy.integers(0, len(_NOTE_TEMPLATES), k)
+    cond_u = ctx.rng.child("note_condition_phrase").numpy.random(k)
+    disp_u = ctx.rng.child("note_disposition_phrase").numpy.random(k)
+    notes: list[str] = []
+    for i in range(k):
+        cond_phrases = _CONDITION_PHRASES[item_condition[i]]
+        disp_phrases = _DISPOSITION_PHRASES[restocked[i]]
+        cond = cond_phrases[int(cond_u[i] * len(cond_phrases))]
+        disp = disp_phrases[int(disp_u[i] * len(disp_phrases))]
+        template = _NOTE_TEMPLATES[int(template_idx[i])]
+        notes.append(
+            template.format(rid=return_ids[i], cond=cond, disp=disp, disp_cap=disp.capitalize())
+        )
+    return notes
 
 
 def build_returns(ctx: GenContext) -> pl.DataFrame:
@@ -103,9 +180,12 @@ def build_returns(ctx: GenContext) -> pl.DataFrame:
         for d, x in zip(order_dates, delay, strict=True)
     ]
 
+    return_ids = [f"RET-{i:07d}" for i in range(1, k + 1)]
+    inspection_note = _render_inspection_notes(ctx, return_ids, item_condition, restocked.tolist())
+
     return pl.DataFrame(
         {
-            "return_id": [f"RET-{i:07d}" for i in range(1, k + 1)],
+            "return_id": return_ids,
             "order_item_id": sub["order_item_id"],
             "order_id": sub["order_id"],
             "return_date": return_date,
@@ -114,5 +194,6 @@ def build_returns(ctx: GenContext) -> pl.DataFrame:
             "refund_method": refund_method,
             "item_condition": item_condition,
             "restocked": restocked,
+            "inspection_note": inspection_note,
         }
     )
