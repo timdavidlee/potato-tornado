@@ -1,3 +1,9 @@
+## v0.7.0 (2026-07-11)
+
+### Feat
+
+- **data-collection**: plant high-risk-patient and whale-rental scenario signals
+
 ## v0.6.0 (2026-07-11)
 
 ### Feat

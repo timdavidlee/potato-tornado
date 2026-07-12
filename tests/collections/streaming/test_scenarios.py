@@ -96,6 +96,27 @@ def test_priciest_rental_tier_rates_lowest(streaming: dict[str, pl.DataFrame]) -
     assert means[19.99] < means[4.99] and means[19.99] < means[6.99]
 
 
+def test_rentals_concentrate_in_a_whale_minority(streaming: dict[str, pl.DataFrame]) -> None:
+    per = (
+        streaming["rentals"]
+        .group_by("subscriber_id")
+        .agg(pl.len().alias("rentals"))
+        .sort("rentals", descending=True)
+    )
+    top_decile = max(1, per.height // 10)
+    top10_share = int(per.head(top_decile)["rentals"].sum()) / int(per["rentals"].sum())
+    # Whale minority: top decile of renters ≈0.45 of rentals at seed 7 / scale 0.5;
+    # a uniform renter draw would sit near ~0.21.
+    assert top10_share > 0.38
+
+
+def test_most_subscribers_never_rent(streaming: dict[str, pl.DataFrame]) -> None:
+    n_subs = streaming["subscribers"].height
+    n_renters = streaming["rentals"]["subscriber_id"].n_unique()
+    # The base is thin: only ~30% of subscribers ever rent at seed 7 / scale 0.5.
+    assert n_renters / n_subs < 0.40
+
+
 def test_premium_titles_score_higher(streaming: dict[str, pl.DataFrame]) -> None:
     means = dict(
         streaming["titles"]
