@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
+
 import polars as pl
 import pytest
 
+from potato_tornado.collections.streaming.constants import RENTAL_VAT_RATES
 from potato_tornado.core.config import GenerationConfig
 from potato_tornado.runner import generate
 
@@ -12,6 +15,50 @@ from potato_tornado.runner import generate
 @pytest.fixture(scope="module")
 def streaming() -> dict[str, pl.DataFrame]:
     return generate("streaming", GenerationConfig(seed=7, scale=0.5))
+
+
+# The deterministic extraction a student would run over `rental_receipts.body`: the
+# tax-inclusive total, the VAT rate (absent => 0% on US receipts), the two-letter market,
+# and the subtotal that reconciles against `rentals.price`. See
+# scenarios/receipts-reveal-a-tax-premium.md.
+_TOTAL = re.compile(r"(?:Total charged:\s*|you paid )\$(\d+\.\d{2})")
+_RATE = re.compile(r"(?:VAT|GST) \((\d+)%\)")
+_MARKET = re.compile(r"\((US|GB|DE|BR|IN|JP)\)")
+_SUBTOTAL = re.compile(r"(?:Subtotal:\s*|List price )\$(\d+\.\d{2})")
+
+
+def _group1(pattern: re.Pattern[str], text: str) -> str:
+    """First capture group of ``pattern`` in ``text``; raise if it does not match."""
+    match = pattern.search(text)
+    if match is None:
+        raise AssertionError(f"pattern {pattern.pattern!r} did not match receipt body")
+    return match.group(1)
+
+
+@pytest.fixture(scope="module")
+def parsed_receipts(streaming: dict[str, pl.DataFrame]) -> pl.DataFrame:
+    """Parse every receipt body into structured columns, the way an analyst would.
+
+    Returns one row per receipt: ``rental_id`` plus the ``market``, ``subtotal``,
+    ``total`` (tax-inclusive), and ``rate`` (VAT percent) extracted from the prose.
+    """
+    rows: list[dict[str, object]] = []
+    for rental_id, body in zip(
+        streaming["rental_receipts"]["rental_id"].to_list(),
+        streaming["rental_receipts"]["body"].to_list(),
+        strict=True,
+    ):
+        rate_match = _RATE.search(body)
+        rows.append(
+            {
+                "rental_id": rental_id,
+                "market": _group1(_MARKET, body),
+                "subtotal": float(_group1(_SUBTOTAL, body)),
+                "total": float(_group1(_TOTAL, body)),
+                "rate": int(rate_match.group(1)) if rate_match else 0,
+            }
+        )
+    return pl.DataFrame(rows)
 
 
 def test_standard_is_modal_plan_overall(streaming: dict[str, pl.DataFrame]) -> None:
@@ -171,3 +218,59 @@ def test_annual_books_lower_mrr_but_retains_better(streaming: dict[str, pl.DataF
     # The lowest-MRR cohort is the stickiest: annual books less revenue per sub (~$11.3 vs
     # ~$13.9) yet cancels far less (~0.06 vs ~0.21), so ranking cohorts by MRR inverts value.
     assert annual_mrr < monthly_mrr and annual_cancel < monthly_cancel
+
+
+# --- receipts-reveal-a-tax-premium (document scenario) -------------------------------
+# Layer (a): the receipt prose parses back to the ground truth. Layer (b): the parsed
+# effective totals carry the planted per-market VAT premium, with the US the cheapest.
+
+
+def test_receipt_subtotal_reconciles_with_rental_price(
+    parsed_receipts: pl.DataFrame, streaming: dict[str, pl.DataFrame]
+) -> None:
+    # Layer (a): the subtotal printed on every receipt is exactly `rentals.price` (the
+    # receipt renders the real list column — no answer leaked into the prose).
+    joined = parsed_receipts.join(streaming["rentals"].select("rental_id", "price"), on="rental_id")
+    max_gap = joined.select((pl.col("subtotal") - pl.col("price")).abs().max()).item()
+    assert max_gap < 0.005
+
+
+def test_receipt_total_is_recoverable_from_prose(parsed_receipts: pl.DataFrame) -> None:
+    # Layer (a): using only fields parsed out of the prose (subtotal + the VAT rate, which
+    # is absent => 0% on US receipts), the tax-inclusive total reconstructs the printed
+    # `Total charged` line — the number is genuinely legible across all template variants.
+    reconstructed = (pl.col("subtotal") * (1 + pl.col("rate") / 100)).round(2)
+    max_gap = parsed_receipts.select((pl.col("total") - reconstructed).abs().max()).item()
+    assert max_gap < 0.005
+
+
+def test_receipt_rate_matches_the_withheld_vat_schedule(parsed_receipts: pl.DataFrame) -> None:
+    # Layer (a): the VAT rate printed in each receipt equals the withheld per-market
+    # schedule (the answer key held back for scoring), so the prose encodes the right tax.
+    expected = pl.col("market").replace_strict(RENTAL_VAT_RATES, return_dtype=pl.Int64)
+    mismatches = parsed_receipts.filter(pl.col("rate") != expected).height
+    assert mismatches == 0
+
+
+def test_us_is_the_cheapest_effective_rental_market(parsed_receipts: pl.DataFrame) -> None:
+    # Layer (b) signal: aggregate the parsed tax-inclusive totals by market. The US — the
+    # largest rental market by volume and the subscription ARPU leader — is the *cheapest*
+    # effective ticket (0% VAT), inverting the subscription US-concentration story.
+    mean_effective = parsed_receipts.group_by("market").agg(pl.col("total").mean().alias("eff"))
+    cheapest = mean_effective.sort("eff").row(0, named=True)["market"]
+    assert cheapest == "US"
+
+
+@pytest.mark.parametrize(
+    ("market", "expected_ratio"),
+    [("US", 1.00), ("JP", 1.10), ("BR", 1.17), ("IN", 1.18), ("DE", 1.19), ("GB", 1.20)],
+)
+def test_effective_over_list_ratio_matches_region_vat(
+    parsed_receipts: pl.DataFrame, market: str, expected_ratio: float
+) -> None:
+    # Layer (b) magnitude: within each market the mean effective charge runs (1 + VAT) over
+    # the mean list — US flat at 1.00x, up to GB at 1.20x — a ~20% spread hidden from any
+    # column. The ratio-of-means is exact up to per-cent rounding, so a tight tolerance.
+    rows = parsed_receipts.filter(pl.col("market") == market)
+    ratio = rows.select(pl.col("total").mean() / pl.col("subtotal").mean()).item()
+    assert abs(ratio - expected_ratio) < 0.01

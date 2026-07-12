@@ -9,8 +9,10 @@
   rental market, and this is invisible in the warehouse: only the receipts carry the tax
   and the total.
 - **Documents:** `rental_receipts.body` — an unstructured PVOD transaction record (a
-  markdown rental receipt), one per rental, ≈ `ctx.n(1500)` rows (floor 1). *(table to
-  be planted — the realize step adds `build_rental_receipts`.)*
+  markdown rental receipt), one per rental, ≈ `ctx.n(1500)` rows (750 at the
+  seed=7/scale=0.5 test config; floor 1). Emitted by `build_rental_receipts` in three
+  name-keyed phrasings (an itemized markdown receipt, a one-line prose confirmation, and a
+  labelled confirmation block) so the parser must survive layout variation.
 - **Parse target:** the **tax-inclusive total charged** and the **VAT line** (rate + amount),
   which appear *only* in the receipt prose — the warehouse stores just the pre-tax list
   `price`, so the amount the customer paid cannot be read off any column. Example receipts
@@ -46,11 +48,16 @@
 - **Tables:** `rental_receipts.body` *(to be planted)*, `rentals.price`,
   `rentals.subscriber_id`, `subscribers.region` (the renter's market, joined on
   `subscriber_id`).
-- **Magnitude:** mean list price ≈ **$7.84**/rental, flat across every market (price is a
-  per-transaction draw independent of region). Mean **effective charged** by market ≈ US
-  **$7.84** (0%) · JP **$8.62** (10%) · BR **$9.17** (17%) · IN **$9.25** (18%) · DE
-  **$9.33** (19%) · GB **$9.41** (20%) — a ~20% spread with the US lowest. Tax rates are
-  flagged **to be planted** (the realize step measures and firms them up).
+- **Magnitude:** *(measured at seed=7, scale=0.5)* mean list price ≈ **$7.93**/rental, flat
+  in distribution across every market (price is a per-transaction draw independent of
+  region, so per-market sample means wobble ≈ $7.50–$8.56). The planted VAT schedule is US
+  **0%** · JP **10%** · BR **17%** · IN **18%** · DE **19%** · GB **20%**, applied as a flat
+  multiplier, so within each market the mean **effective charged / mean list = (1 + VAT)
+  exactly**: US **×1.00** · JP **×1.10** · BR **×1.17** · IN **×1.18** · DE **×1.19** · GB
+  **×1.20**. Mean effective charged by market ≈ US **$8.12** (cheapest) · JP **$8.44** · IN
+  **$9.00** · GB **$9.01** · DE **$9.11** · BR **$10.02** — a ~23% spread, US lowest despite
+  being the largest rental market (255 of 750 rentals). Overall blended effective ≈ **$8.81**
+  vs the **$7.93** list — an ~11% premium invisible to anyone reading only the `price` column.
 
 The warehouse only knows the *list* price; what a customer was actually charged lives
 solely on the receipt. An analyst who wants effective revenue — or the answer to "which

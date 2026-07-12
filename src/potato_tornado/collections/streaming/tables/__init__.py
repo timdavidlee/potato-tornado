@@ -10,6 +10,7 @@ from __future__ import annotations
 from potato_tornado.collections.streaming.tables.actors import build_actors
 from potato_tornado.collections.streaming.tables.plans import build_plans
 from potato_tornado.collections.streaming.tables.regions import build_regions
+from potato_tornado.collections.streaming.tables.rental_receipts import build_rental_receipts
 from potato_tornado.collections.streaming.tables.rentals import build_rentals
 from potato_tornado.collections.streaming.tables.subscribers import build_subscribers
 from potato_tornado.collections.streaming.tables.subscriptions import build_subscriptions
@@ -20,6 +21,7 @@ __all__ = [
     "build_actors",
     "build_plans",
     "build_regions",
+    "build_rental_receipts",
     "build_rentals",
     "build_subscribers",
     "build_subscriptions",

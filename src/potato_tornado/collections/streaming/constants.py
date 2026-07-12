@@ -82,6 +82,14 @@ ACQUISITION_CHANNEL_WEIGHTS = [0.34, 0.24, 0.18, 0.14, 0.10]
 BILLING_CYCLES = ["monthly", "annual"]
 BILLING_CYCLE_WEIGHTS = [0.80, 0.20]
 
+# Withheld answer key for scenarios/receipts-reveal-a-tax-premium.md: the per-market
+# consumption-tax rate (integer percent) added on top of the flat USD list price on a
+# PVOD rental receipt. The US is tax-free; every other market adds 10-20%. This schedule
+# is rendered into `rental_receipts.body` prose only — it is deliberately *not* exposed as
+# a queryable column (the tax-inclusive total lives solely in the receipt text), so
+# effective revenue is a parse-only quantity and the map is held back for scoring.
+RENTAL_VAT_RATES: dict[str, int] = {"US": 0, "JP": 10, "BR": 17, "IN": 18, "DE": 19, "GB": 20}
+
 # "2 months free": an annual plan is priced at 10x the monthly rate, so the
 # monthly-equivalent MRR of an annual subscription is annual_price / 12 =
 # monthly_price * 10 / 12. Feeds the derived `subscriptions.mrr` column.

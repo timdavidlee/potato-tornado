@@ -13,7 +13,8 @@ update the matching line below in the same change.
 
 - **Referential integrity.** `subscriptions.subscriber_id ∈ subscribers`,
   `subscriptions.plan ∈ plans.plan`, `rentals.subscriber_id ∈ subscribers`,
-  `rentals.title_id ∈ titles`, `titles.lead_actor ∈ actors.actor` (both the
+  `rentals.title_id ∈ titles`, `rental_receipts.rental_id ∈ rentals` (exactly one receipt
+  per rental — a 1:1 join), `titles.lead_actor ∈ actors.actor` (both the
   `titles` builder and the `actors` catalogue derive from the same `CELEBRITIES`
   source of truth, so this holds by construction), and `subscribers.region` /
   `title_availability.region ∈ regions.region`.
@@ -48,6 +49,16 @@ update the matching line below in the same change.
   (`rentals` → `subscribers.region` → `title_availability`) for a title not licensed in the
   renter's region returns 0 rows.
 - **Rental price is a known price point.** `rentals.price ∈ {4.99, 6.99, 19.99}`.
+- **Receipt subtotal renders the real list price.** The subtotal parsed from every
+  `rental_receipts.body` (the `Subtotal:` / `List price` line) equals the rented rental's
+  `rentals.price` to the cent — the receipt *renders* the real column, leaking no answer.
+- **Receipt total is the list price plus the region VAT.** The tax-inclusive
+  `Total charged` parsed from `rental_receipts.body` equals
+  `round(subtotal × (1 + RENTAL_VAT_RATES[market] / 100), 2)`, where `market` is the
+  renter's region (`rentals → subscribers.region`) and `RENTAL_VAT_RATES` is the withheld
+  schedule (US 0% · JP 10% · BR 17% · IN 18% · DE 19% · GB 20%). The VAT rate and the total
+  live *only* in the prose — neither is a queryable column — and US receipts carry no
+  `VAT (N%)` token (rate 0). See `scenarios/receipts-reveal-a-tax-premium.md`.
 - **Rentals fall on/after release.** `rentals.rented_date >= titles.release_date` for the
   rented title (you can't rent a title before it exists) and stays within the window — the date
   is drawn as a fraction of `[max(release_date, start_date), end_date)`, so a rental never
