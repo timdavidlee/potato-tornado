@@ -1,3 +1,9 @@
+## v0.11.0 (2026-07-11)
+
+### Feat
+
+- **data-collection**: realize document-based scenario for logistics
+
 ## v0.10.0 (2026-07-11)
 
 ### Feat
